@@ -14,7 +14,8 @@
 - source repo push: `memory-plugin` `main`
 - auto release target: `/opt/data/plugins/memory/`
 - workflow: `.github/workflows/ci.yaml` の `sync-runtime`
-- preserve: runtime 側の `state/` は残したまま、それ以外の tracked plugin surface を source 正本で上書きする
+- deploy model: runtime plugin surface `/opt/data/plugins/memory/` は source repo の **git checkout** として保つ
+- preserve: runtime 側の `state/` は残したまま、`origin/main` へ fetch/reset/clean 後に復元する
 
 ## scope
 
