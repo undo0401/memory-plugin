@@ -1,0 +1,123 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: memory-plugin-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Compile plugin files
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib
+          import py_compile
+
+          for path in sorted(pathlib.Path('.').rglob('*.py')):
+              if '__pycache__' in path.parts:
+                  continue
+              py_compile.compile(str(path), doraise=True)
+              print(path)
+          PY
+
+      - name: Verify plugin metadata
+        run: |
+          test -f plugin.yaml
+          test -f dashboard/manifest.json
+          test -f skills/daily-memory/SKILL.md
+
+  sync-runtime:
+    name: Sync runtime plugin surface
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: [self-hosted, linux]
+    concurrency:
+      group: memory-plugin-sync-runtime
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Sync runtime plugin surface
+        env:
+          RUNTIME_ROOT: /opt/data/plugins/memory
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import shutil
+          import tempfile
+
+          src = Path(os.environ['GITHUB_WORKSPACE']) / 'repo'
+          dst = Path(os.environ['RUNTIME_ROOT'])
+          dst.mkdir(parents=True, exist_ok=True)
+
+          preserved_state = None
+          state_dir = dst / 'state'
+          if state_dir.exists():
+              preserved_state = Path(tempfile.mkdtemp())
+              shutil.copytree(state_dir, preserved_state / 'state', dirs_exist_ok=True)
+
+          for child in list(dst.iterdir()):
+              if child.name in {'state', '__pycache__'}:
+                  shutil.rmtree(child, ignore_errors=True)
+                  continue
+              if child.is_dir():
+                  shutil.rmtree(child)
+              else:
+                  child.unlink()
+
+          for child in src.iterdir():
+              if child.name in {'.git', '.github', '__pycache__', '.pytest_cache', '.gitignore', 'AGENTS.md'}:
+                  continue
+              target = dst / child.name
+              if child.is_dir():
+                  shutil.copytree(child, target, ignore=shutil.ignore_patterns('__pycache__'))
+              else:
+                  shutil.copy2(child, target)
+
+          if preserved_state is not None:
+              shutil.copytree(preserved_state / 'state', dst / 'state', dirs_exist_ok=True)
+          PY
+
+      - name: Verify runtime surface
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib
+          import py_compile
+
+          root = pathlib.Path('/opt/data/plugins/memory')
+          for path in sorted(root.rglob('*.py')):
+              if '__pycache__' in path.parts:
+                  continue
+              py_compile.compile(str(path), doraise=True)
+              print(path)
+          assert (root / 'plugin.yaml').is_file()
+          assert (root / 'dashboard' / 'manifest.json').is_file()
+          assert (root / 'skills' / 'daily-memory' / 'SKILL.md').is_file()
+          PY

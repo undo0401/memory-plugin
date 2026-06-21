@@ -1,0 +1,4 @@
+name: memory
+version: 0.1.0
+description: Hermes plugin for memory runtime assets and dashboard hooks; the `memory` skill is surfaced bare via skills.external_dirs.
+author: LIN

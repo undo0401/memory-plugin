@@ -1,0 +1,14 @@
+{
+  "name": "memory",
+  "label": "memory",
+  "description": "LIN memory 設定を一覧→詳細で扱うダッシュボード",
+  "icon": "BookHeart",
+  "version": "0.2.0",
+  "tab": {
+    "path": "/memory",
+    "position": "after:skills"
+  },
+  "entry": "dist/index.js",
+  "css": "dist/style.css",
+  "api": "plugin_api.py"
+}

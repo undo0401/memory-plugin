@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "description": "memory dashboard v3 config",
+  "lanes": [
+    {
+      "name": "memory_casual",
+      "enabled": true,
+      "prompt": "このチャットでは提案は行わず、雑談をしている雰囲気で話すこと。",
+      "idle_seconds": 7200,
+      "max_session_age_seconds": 86400,
+      "reinject_interval_minutes": 120,
+      "target_sessions": [],
+      "target_channels": [
+        "discord:#雑談"
+      ],
+      "exclude_sessions": [],
+      "exclude_channels": [],
+      "include_recent_daily_memory": false,
+      "snapshot_files": [
+        "/opt/data/state/STATUS.md"
+      ]
+    },
+    {
+      "name": "memory_voice",
+      "enabled": true,
+      "prompt": "このチャットはボイスチャットなので、要点のみを短めに返す\n会話していることを意識した返答にする\n必要なときのみ数行で返す",
+      "idle_seconds": 14400,
+      "max_session_age_seconds": 86400,
+      "reinject_interval_minutes": 240,
+      "target_sessions": [],
+      "target_channels": [
+        "discord:#雑談ボイチャ",
+        "discord:#管理ボイチャ"
+      ],
+      "exclude_sessions": [],
+      "exclude_channels": [],
+      "include_recent_daily_memory": false,
+      "snapshot_files": []
+    }
+  ]
+}
