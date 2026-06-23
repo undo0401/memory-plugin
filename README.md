@@ -12,13 +12,9 @@
 ## release path
 
 - source repo push: `memory-plugin` `main`
-- auto release target: `/opt/data/plugins/memory/`
-- deploy trigger: GitHub repository webhook → `market-lantern-system` の shared receiver
-- canonical receiver: `/opt/data/src/market-lantern-system/scripts/deploy/github_webhook_deploy.py`
-- target config: `/opt/data/src/market-lantern-system/config/github_webhook_deploy_targets.json`
-- runtime path `/github/memory-plugin` を shared listener へ向ける
-- deploy model: runtime plugin surface `/opt/data/plugins/memory/` は source repo の **git checkout** として保つ
-- preserve: runtime 側の `state/` は残したまま、`origin/main` へ fetch/reset/clean 後に復元する
+- auto deploy: 停止中
+- runtime target: `/opt/data/plugins/memory/`
+- tracked code の反映は必要時に host 上で手動 `git pull --ff-only` へ寄せる
 
 ## scope
 

@@ -24,5 +24,5 @@
 - 実運用の plugin surface は `/opt/data/plugins/memory/`
 - source owner repo は `/opt/data/src/memory-plugin/`
 - tracked plugin code の正本は `origin/main` だけ
-- `main` push の反映は GitHub repository webhook を `market-lantern-system` の shared receiver で受けて、`/opt/data/plugins/memory/` の git checkout を `origin/main` へ追随させる
+- `main` push の自動反映は停止中で、tracked code の更新は必要時に host 上で手動 `git pull --ff-only` へ寄せる
 - runtime state は `/opt/data/plugins/memory/state/` に残し、source repo へは持ち込まない
