@@ -118,6 +118,12 @@
       selectedLaneName: null,
       view: "list"
     });
+    const laneEpochRef = React.useRef(0);
+    const activeLaneRef = React.useRef(null);
+
+    useEffect(function () {
+      activeLaneRef.current = state.selectedLaneName || null;
+    }, [state.selectedLaneName]);
 
     const syncForm = useCallback(function (payload, desiredLaneName) {
       const config = (payload && payload.config) || { lanes: [] };
@@ -146,14 +152,17 @@
     }, []);
 
     const load = useCallback(function (desiredLaneName) {
+      const laneEpoch = laneEpochRef.current;
+      const fallbackLaneName = desiredLaneName || activeLaneRef.current;
       setState(function (prev) { return Object.assign({}, prev, { loading: true, error: "" }); });
       api("/config").then(function (payload) {
         setState(function (prev) { return Object.assign({}, prev, { loading: false, payload: payload }); });
-        syncForm(payload, desiredLaneName || state.selectedLaneName);
+        if (laneEpoch !== laneEpochRef.current) return;
+        syncForm(payload, fallbackLaneName || activeLaneRef.current);
       }).catch(function (err) {
         setState(function (prev) { return Object.assign({}, prev, { loading: false, error: parseApiErrorMessage(err) }); });
       });
-    }, [syncForm, state.selectedLaneName]);
+    }, [syncForm]);
 
     useEffect(function () { load(); }, [load]);
 
@@ -229,11 +238,19 @@
       return config;
     }
     function persistConfig(payload, successMessage, nextState, syncLaneName) {
+      const laneEpoch = laneEpochRef.current;
+      const targetLaneName = syncLaneName || activeLaneRef.current;
       setState(function (prev) { return Object.assign({}, prev, { saving: true, error: "", banner: "" }, nextState || {}); });
       api("/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then(function (nextPayload) {
         var wakeInfo = nextPayload && nextPayload.watcher ? (" · watcher wake " + String(nextPayload.watcher.woken_watchers || 0)) : "";
-        setState(function (prev) { return Object.assign({}, prev, Object.assign({ saving: false, banner: successMessage + wakeInfo, payload: nextPayload }, nextState || {})); });
-        syncForm(nextPayload, syncLaneName || state.selectedLaneName);
+        var laneMoved = laneEpoch !== laneEpochRef.current;
+        setState(function (prev) {
+          var baseState = { saving: false, banner: successMessage + wakeInfo, payload: nextPayload };
+          if (laneMoved) return Object.assign({}, prev, baseState);
+          return Object.assign({}, prev, Object.assign({}, baseState, nextState || {}));
+        });
+        if (laneMoved) return;
+        syncForm(nextPayload, targetLaneName || activeLaneRef.current);
       }).catch(function (err) {
         setState(function (prev) { return Object.assign({}, prev, { saving: false, error: parseApiErrorMessage(err) }); });
       });
@@ -253,7 +270,9 @@
       persistConfig(payload, "Saved", { view: "list", selectedLaneName: nextLaneName || null }, nextLaneName);
     }
     function openLane(laneName) {
-      setState(function (prev) { return Object.assign({}, prev, { selectedLaneName: laneName, view: "detail" }); });
+      laneEpochRef.current += 1;
+      activeLaneRef.current = laneName;
+      setState(function (prev) { return Object.assign({}, prev, { selectedLaneName: laneName, view: "detail", saving: false }); });
       syncForm(state.payload || { config: currentConfig() }, laneName);
     }
     function backToList() {
