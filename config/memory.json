@@ -5,7 +5,7 @@
     {
       "name": "memory_casual",
       "enabled": true,
-      "prompt": "このチャットでは提案は行わず、雑談をしている雰囲気で話すこと。",
+      "prompt": "このチャットでは提案は行わず、雑談をしている雰囲気で話すこと。\n必要に応じてnotesに記録を取っていくこと",
       "idle_seconds": 7200,
       "max_session_age_seconds": 86400,
       "reinject_interval_minutes": 120,

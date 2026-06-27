@@ -50,4 +50,4 @@ python3 /opt/data/scripts/memory/list-memory-range.py --format json
 - skill 側は入口と説明だけ持ち、実装正本は `/opt/data/scripts/memory/` に寄せる
 - `daily-memory` skill の bare 正本は `/opt/data/plugins/memory/skills/daily-memory/` に置き、discovery は `skills.external_dirs` 経由へ一本化する
 - 検索・一覧・今日昨日参照も、別 skill へ分けず `daily-memory` にまとめて持つ
-- runtime context build / session sync 系の companion skill は `/opt/data/skills/LIN/event-context/` に置く
+- runtime context build / session sync 系の companion skill は `/opt/data/skills/lin/event-context/` に置く

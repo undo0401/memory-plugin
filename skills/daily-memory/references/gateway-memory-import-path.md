@@ -14,7 +14,7 @@
 1. **skill の露出**と**Python import 経路**を分けて考える
    - `register_skill(...)` は主に skill の discoverability / namespaced 露出の話
    - 今回のような `plugins.memory.dashboard` エラーは、まず Python package 解決の問題として疑う
-2. runtime code が `/opt/hermes/...` で動いていても、正本が `/opt/data/workspace/infra/overrides/...` かを先に確認する
+2. runtime code が `/opt/hermes/...` で動いていても、正本が `/opt/data/overrides/...` かを先に確認する
 3. compose で `./overrides/run.py:/opt/hermes/gateway/run.py:ro` のような bind mount があるなら、**編集は override 正本側**へ入れる
 
 ## 実務の修理方針

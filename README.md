@@ -5,13 +5,11 @@
 ## canonical relation
 
 - plugin runtime path: `/opt/data/plugins/memory/`
-- source owner repo: `/opt/data/src/memory-plugin/`
 - これは project repo ではなく、runtime / extension surface として扱う
-- source-like docs を別 project へ切る時は、owner 側の `plugins/` 棚に mapping を残す
+- source-like docs は runtime 側か workspace note 側へ寄せる
 
 ## release path
 
-- source repo push: `memory-plugin` `main`
 - auto deploy: 停止中
 - runtime target: `/opt/data/plugins/memory/`
 - tracked code の反映は必要時に host 上で手動 `git pull --ff-only` へ寄せる

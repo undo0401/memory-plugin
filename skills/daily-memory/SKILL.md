@@ -88,6 +88,7 @@ python3 /opt/data/scripts/memory/read-recent-memory.py --format json --include-m
 ## 補助 script の境界
 - `search-memory.py` / `list-memory-range.py` / `read-recent-memory.py` は、**別 skill に分けず `daily-memory` の中で案内する**
 - `build-memory-context.py` / `lin-memory-session-sync.py` みたいな runtime build / sync 系だけを、sibling の `event-context` へ分ける
+- `MEMORY_EMOTIONS_CONTEXT` の本文-only 整形ルールと script 修理ポイントは `references/memory-emotions-context-formatting.md` を見る
 - user-facing の daily memory 運用と、runtime context 生成の境界をここで切ると迷いにくい
 
 ## daily memory を会話の文脈に使う時
@@ -112,6 +113,12 @@ python3 /opt/data/scripts/memory/read-recent-memory.py --format json --include-m
 - 視点は `作業の流れ` / `関係性の余韻` / `暮らしの手触り` / `迷いと着地` / `明日へ持ち越す灯り` をローテーションする
 - その日固有の名詞や話題を最低 1 つは本文へ入れる
 - 直近 2〜3 日ぶんと似た書き出し・締めを避ける
+
+## emotion context の見え方を削ぐ時
+- `MEMORY_EMOTIONS_CONTEXT.md` は、感情の余韻を持ち込むための薄い断片として扱う
+- この用途では、**本文だけを空行区切りで並べる shape を canonical** にする
+- `session title` / `#番号` / `時刻` / `role` / `total_score` は、debug では有用でも通常の emotion context ではノイズになりやすい
+- 直す時は `build-memory-context.py` の `_render_message_lines()` を起点に見て、表示から消したいメタ情報を backend の保持と分けて考える
 
 ## Hermes で heartbeat 的な継続感を作る時の注意
 - Hermes の cron は fresh session なので、OpenClaw の heartbeat そのものにはならない
