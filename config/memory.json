@@ -13,12 +13,38 @@
       "target_channels": [
         "*"
       ],
+      "target_profiles": [
+        "default"
+      ],
       "exclude_sessions": [],
       "exclude_channels": [],
-      "include_recent_daily_memory": false,
+      "exclude_profiles": [],
+      "include_current_time": false,
+      "include_current_source": false,
+      "include_session_gap": false,
       "snapshot_files": [
         "/opt/data/state/STATUS.md"
       ]
+    },
+    {
+      "name": "memory-2",
+      "enabled": true,
+      "prompt": "",
+      "idle_seconds": 0,
+      "max_session_age_seconds": 86400,
+      "reinject_interval_minutes": 0,
+      "target_sessions": [],
+      "target_channels": [],
+      "target_profiles": [
+        "default"
+      ],
+      "exclude_sessions": [],
+      "exclude_channels": [],
+      "exclude_profiles": [],
+      "include_current_time": false,
+      "include_current_source": false,
+      "include_session_gap": false,
+      "snapshot_files": []
     }
   ]
 }
