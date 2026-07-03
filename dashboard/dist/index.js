@@ -58,6 +58,44 @@
     if (!text) return "(never)";
     return text;
   }
+  function formatMinutesAgo(value, timestamp) {
+    var n = Number(value);
+    if (!Number.isFinite(n) && timestamp) {
+      var parsed = Date.parse(String(timestamp));
+      if (Number.isFinite(parsed)) n = Math.max(0, Math.floor((Date.now() - parsed) / 60000));
+    }
+    if (!Number.isFinite(n)) return "(never)";
+    if (n <= 0) return "just now";
+    if (n < 60) return String(n) + "m ago";
+    var hours = Math.floor(n / 60);
+    var minutes = n % 60;
+    if (hours < 24) return String(hours) + "h" + (minutes ? " " + minutes + "m" : "") + " ago";
+    var days = Math.floor(hours / 24);
+    var remHours = hours % 24;
+    return String(days) + "d" + (remHours ? " " + remHours + "h" : "") + " ago";
+  }
+  function activeProfile(payload) {
+    try {
+      var fromUrl = new URLSearchParams(window.location.search || "").get("profile");
+      if (fromUrl !== null) return String(fromUrl || "default").trim() || "default";
+    } catch (_e) {}
+    return String((payload && payload.active_profile) || "default").trim() || "default";
+  }
+  function profilePatternsMatch(profile, patterns) {
+    var list = Array.isArray(patterns) ? patterns.map(function (v) { return String(v || "").trim(); }).filter(Boolean) : [];
+    if (!list.length) list = ["default"];
+    var p = String(profile || "default").trim() || "default";
+    return list.some(function (item) {
+      if (["*", "all", "any"].includes(item.toLowerCase())) return false;
+      return item === p || item.toLowerCase() === p.toLowerCase();
+    });
+  }
+  function laneMatchesActiveProfile(lane, payload) {
+    var profile = activeProfile(payload);
+    if (!profilePatternsMatch(profile, lane && lane.target_profiles)) return false;
+    var excludes = Array.isArray(lane && lane.exclude_profiles) ? lane.exclude_profiles : [];
+    return !(excludes.length && profilePatternsMatch(profile, excludes));
+  }
   function defaultLane(index) {
     const n = (index || 0) + 1;
     return {
@@ -118,8 +156,9 @@
     const syncForm = useCallback(function (payload, desiredLaneName) {
       const config = (payload && payload.config) || { lanes: [] };
       const lanes = Array.isArray(config.lanes) ? config.lanes : [];
-      const selectedName = desiredLaneName || (lanes[0] && lanes[0].name) || null;
-      const lane = lanes.find(function (item) { return String(item.name) === String(selectedName); }) || lanes[0] || defaultLane(0);
+      const visibleLanes = lanes.filter(function (item) { return laneMatchesActiveProfile(item, payload); });
+      const selectedName = desiredLaneName || (visibleLanes[0] && visibleLanes[0].name) || null;
+      const lane = visibleLanes.find(function (item) { return String(item.name) === String(selectedName); }) || visibleLanes[0] || defaultLane(0);
       setState(function (prev) {
         return Object.assign({}, prev, {
           payload: payload,
@@ -135,10 +174,9 @@
             scopeMode: defaultScopeMode(lane),
             targetSessionsText: ((lane.target_sessions || []).filter(function (item) { return item !== "*"; })).join("\n"),
             targetChannelsText: ((lane.target_channels || []).filter(function (item) { return item !== "*"; })).join("\n"),
-            targetProfile: ((lane.target_profiles || [])[0]) || "default",
+            targetProfile: activeProfile(payload),
             excludeSessionsText: ((lane.exclude_sessions || [])).join("\n"),
             excludeChannelsText: ((lane.exclude_channels || [])).join("\n"),
-            excludeProfilesText: ((lane.exclude_profiles || [])).join("\n"),
             snapshotFilesText: ((lane.snapshot_files || [])).join("\n")
           }
         });
@@ -187,8 +225,11 @@
     function currentLanes() {
       return Array.isArray(currentConfig().lanes) ? currentConfig().lanes : [];
     }
+    function visibleLanes() {
+      return currentLanes().filter(function (lane) { return laneMatchesActiveProfile(lane, state.payload); });
+    }
     function currentLane() {
-      const lanes = currentLanes();
+      const lanes = visibleLanes();
       return lanes.find(function (lane) { return String(lane.name) === String(state.selectedLaneName); }) || lanes[0] || null;
     }
     function laneRuntime(name) {
@@ -198,20 +239,6 @@
     function lanePreview(name) {
       var previews = (state.payload && state.payload.lane_previews) || {};
       return previews[String(name || "")] || null;
-    }
-    function profileOptions() {
-      var rows = (state.payload && Array.isArray(state.payload.available_profiles)) ? state.payload.available_profiles : [];
-      var seen = {};
-      var options = rows.map(function (item) {
-        var value = String((item && item.value) || "").trim();
-        if (!value || seen[value]) return null;
-        seen[value] = true;
-        return { value: value, label: String((item && item.label) || value) };
-      }).filter(Boolean);
-      if (!seen.default) options.unshift({ value: "default", label: "default" });
-      var current = String((state.form && state.form.targetProfile) || "default").trim() || "default";
-      if (!seen[current]) options.push({ value: current, label: current });
-      return options;
     }
     function buildLanePayload() {
       const form = state.form || {};
@@ -231,10 +258,10 @@
         reinject_interval_minutes: 0,
         target_sessions: useTarget && targetKind === "session" ? scopeValues : [],
         target_channels: useTarget && targetKind === "channel" ? scopeValues : [],
-        target_profiles: [String(form.targetProfile || "default").trim() || "default"],
+        target_profiles: [activeProfile(state.payload)],
         exclude_sessions: useExclude && targetKind === "session" ? scopeValues : [],
         exclude_channels: useExclude && targetKind === "channel" ? scopeValues : [],
-        exclude_profiles: splitLines(form.excludeProfilesText),
+        exclude_profiles: [],
         snapshot_files: splitLines(form.snapshotFilesText)
       };
     }
@@ -296,10 +323,12 @@
     }
     function createLane() {
       var lanes = currentLanes();
-      var lane = defaultLane(lanes.length);
+      var nextIndex = lanes.length;
+      var lane = Object.assign({}, defaultLane(nextIndex), { target_profiles: [activeProfile(state.payload)] });
       var usedNames = new Set(lanes.map(function (item) { return String(item.name); }));
       while (usedNames.has(lane.name)) {
-        lane = defaultLane(usedNames.size + 1);
+        nextIndex += 1;
+        lane = Object.assign({}, defaultLane(nextIndex), { target_profiles: [activeProfile(state.payload)] });
       }
       var payload = clone(currentConfig());
       payload.lanes = lanes.concat([lane]);
@@ -330,7 +359,7 @@
 
     var payload = state.payload || {};
     var form = state.form || {};
-    var lanes = currentLanes();
+    var lanes = visibleLanes();
     var lane = currentLane();
 
     function renderList() {
@@ -380,7 +409,8 @@
                     )
                   ),
                   h("div", { className: "lin-panel__laneMeta" },
-                    h("span", null, "last applied · " + formatTimestamp(runtimeInfo.last_applied_at)),
+                    h("span", null, "last applied · " + formatMinutesAgo(runtimeInfo.last_applied_minutes_ago, runtimeInfo.last_applied_at)),
+                    h("span", null, "last applied at · " + formatTimestamp(runtimeInfo.last_applied_at)),
                     h("span", null, "target · " + targetLabel),
                     h("span", null, "exclude · " + excludeLabel),
                     h("span", null, "profiles · " + profileLabel),
@@ -411,8 +441,7 @@
       if (!summaryScopeValues.length) summaryScopeMode = "all";
       var summaryTargetText = summaryScopeMode === "target" ? summaryScopeValues.join(", ") : "(all)";
       var summaryExcludeText = summaryScopeMode === "exclude" ? summaryScopeValues.join(", ") : "(none)";
-      var summaryTargetProfiles = String(form.targetProfile || "default").trim() || "default";
-      var summaryExcludeProfiles = splitLines(form.excludeProfilesText).join(", ") || "(none)";
+      var summaryTargetProfiles = activeProfile(state.payload);
       var summaryCurrentTime = form.includeCurrentTime ? "inject" : "skip";
       var summaryCurrentSource = form.includeCurrentSource ? "inject" : "skip";
       var summarySessionGap = form.includeSessionGap ? "inject" : "skip";
@@ -445,8 +474,7 @@
             h(CardHeader, null, h(CardTitle, null, "Settings")),
             h(CardContent, { className: "lin-panel__content" },
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.enabled, disabled: !!state.saving, onCheckedChange: function (v) { toggleSelectedLaneEnabled(!!v); } }), h(Label, null, form.enabled ? "enabled" : "disabled")),
-              h("div", { className: "lin-panel__field" }, h(Label, null, "name"), h(Input, { className: "lin-panel__input", value: form.name || "", onChange: function (e) { setFormValue("name", e.target.value); }, placeholder: "setting name" })),
-              h("div", { className: "lin-panel__field" }, h(Label, null, "target profile"), h(SelectField, { value: form.targetProfile || "default", options: profileOptions(), onChange: function (value) { setFormValue("targetProfile", value || "default"); } })),
+              h("div", { className: "lin-panel__field" }, h(Label, null, "name"), h(Input, { className: "lin-panel__input", value: form.name || "", onChange: function (e) { setFormValue("name", e.target.value); }, placeholder: "setting name" }), h("p", { className: "lin-panel__hint" }, "この設定は、今開いている dashboard profile（" + activeProfile(state.payload) + "）だけに保存されるよ。")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "prompt"), h(Textarea, { className: "lin-panel__textarea", value: form.promptText || "", onChange: function (e) { setFormValue("promptText", e.target.value); }, placeholder: "Optional guidance for this setting" }), h("p", { className: "lin-panel__hint" }, "snapshot file とは別に、この lane 専用の補助 prompt を memory injection へ積めるよ。")),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentTime, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentTime", !!v); } }), h(Label, null, "inject current time")),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentSource, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentSource", !!v); } }), h(Label, null, "inject current channel")),
@@ -461,7 +489,6 @@
                 { value: "exclude", label: "除外" }
               ] })),
               h("div", { className: "lin-panel__field" }, h(Label, null, currentScopeLabel()), h(Textarea, { className: "lin-panel__textarea", disabled: String(form.scopeMode || "all") === "all", value: String(form.scopeMode || "all") === "all" ? "" : (form[currentScopeTextKey()] || ""), onChange: function (e) { setFormValue(currentScopeTextKey(), e.target.value); }, placeholder: currentScopePlaceholder() })),
-              h("div", { className: "lin-panel__field" }, h(Label, null, "exclude profiles"), h(Textarea, { className: "lin-panel__textarea", value: form.excludeProfilesText || "", onChange: function (e) { setFormValue("excludeProfilesText", e.target.value); }, placeholder: "one profile per line" })),
               h("div", { className: "lin-panel__field" }, h(Label, null, "snapshot files"), h(Textarea, { className: "lin-panel__textarea", value: form.snapshotFilesText || "", onChange: function (e) { setFormValue("snapshotFilesText", e.target.value); }, placeholder: "/path/to/snapshot.md" })),
               h("div", { className: "lin-panel__buttonRow" },
                 h(Button, { type: "button", onClick: save }, state.saving ? "Saving..." : "Save")
@@ -472,7 +499,8 @@
             h(CardHeader, null, h(CardTitle, null, "Summary / preview")),
             h(CardContent, { className: "lin-panel__content" },
               h("div", { className: "lin-panel__summary" },
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last applied"), h("dd", null, formatTimestamp(runtimeInfo.last_applied_at))),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last applied"), h("dd", null, formatMinutesAgo(runtimeInfo.last_applied_minutes_ago, runtimeInfo.last_applied_at))),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last applied at"), h("dd", null, formatTimestamp(runtimeInfo.last_applied_at))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last reason"), h("dd", null, String(runtimeInfo.last_decision_reason || "(none)"))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "matched sessions"), h("dd", null, String(runtimeInfo.matched_session_count || 0))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "prompt"), h("dd", null, summaryPromptText)),
@@ -481,8 +509,7 @@
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "session gap"), h("dd", null, summarySessionGap)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "target"), h("dd", null, summaryTargetKind + " · " + summaryTargetText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude"), h("dd", null, summaryTargetKind + " · " + summaryExcludeText)),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "target profile"), h("dd", null, summaryTargetProfiles)),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude profiles"), h("dd", null, summaryExcludeProfiles)),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "dashboard profile"), h("dd", null, summaryTargetProfiles)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "files"), h("dd", null, splitLines(form.snapshotFilesText).join(", ") || "(none)"))
               ),
               h("div", { className: "lin-panel__summary" },

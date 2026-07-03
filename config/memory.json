@@ -3,7 +3,7 @@
   "description": "memory dashboard v3 config — pre-call injection only; legacy interval prompt lanes removed",
   "lanes": [
     {
-      "name": "memory_pre_call",
+      "name": "mein-memory",
       "enabled": true,
       "prompt": "",
       "idle_seconds": 0,
@@ -31,7 +31,7 @@
       "reinject_interval_minutes": 0,
       "target_sessions": [],
       "target_channels": [
-        "雑談"
+        "#雑談"
       ],
       "target_profiles": [
         "default"

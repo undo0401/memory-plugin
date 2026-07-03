@@ -943,42 +943,80 @@ def _memory_lane_runtime_summary(state: dict[str, Any]) -> dict[str, Any]:
     runtime = state.get("session_runtime")
     if not isinstance(runtime, dict):
         return summaries
+    now_dt = datetime.now(timezone.utc)
+
+    def ensure_summary(lane_name: str) -> dict[str, Any]:
+        return summaries.setdefault(
+            lane_name,
+            {
+                "lane_name": lane_name,
+                "matched_session_count": 0,
+                "last_applied_at": None,
+                "last_injected_at": None,
+                "last_applied_minutes_ago": None,
+                "last_attempt_at": None,
+                "last_decision_reason": None,
+                "last_session_key": None,
+                "last_session_id": None,
+                "last_source": None,
+            },
+        )
+
+    def maybe_update_latest(summary: dict[str, Any], *, applied_at: Any, session_key: str, session_state: dict[str, Any], lane_state: dict[str, Any] | None = None) -> None:
+        applied_dt = _parse_iso_datetime(applied_at)
+        current_best = _parse_iso_datetime(summary.get("last_applied_at"))
+        if applied_dt is None or (current_best is not None and applied_dt < current_best):
+            return
+        summary["last_applied_at"] = _safe_text(applied_at) or None
+        summary["last_injected_at"] = _safe_text(applied_at) or None
+        summary["last_applied_minutes_ago"] = max(0, int((now_dt - applied_dt.astimezone(timezone.utc)).total_seconds() // 60))
+        summary["last_session_key"] = session_key
+        summary["last_session_id"] = session_state.get("session_id")
+        if lane_state is not None:
+            summary["last_attempt_at"] = lane_state.get("last_attempt_at") or applied_at
+            summary["last_decision_reason"] = lane_state.get("last_decision_reason") or session_state.get("last_decision_reason")
+            summary["last_source"] = {
+                "platform": lane_state.get("platform"),
+                "chat_id": lane_state.get("chat_id"),
+                "thread_id": lane_state.get("thread_id"),
+            }
+        else:
+            summary["last_attempt_at"] = session_state.get("last_resolved_at") or applied_at
+            summary["last_decision_reason"] = session_state.get("last_decision_reason")
+            summary["last_source"] = None
+
     for session_key, session_state in runtime.items():
         if not isinstance(session_key, str) or not isinstance(session_state, dict):
             continue
+
+        # Pre-call injection records lane names directly on the session state.
+        # This is the common path for memory, so surface it in the dashboard list.
+        injected_at = session_state.get("last_injected_at")
+        for raw_lane_name in list(session_state.get("lane_names") or []):
+            lane_name = _safe_text(raw_lane_name)
+            if not lane_name:
+                continue
+            summary = ensure_summary(lane_name)
+            summary["matched_session_count"] = int(summary.get("matched_session_count") or 0) + 1
+            maybe_update_latest(summary, applied_at=injected_at, session_key=session_key, session_state=session_state)
+
+        # Legacy/tick lane state still carries richer per-lane details.
         lanes = session_state.get("__lanes__")
         if not isinstance(lanes, dict):
             continue
         for lane_name, lane_state in lanes.items():
             if not isinstance(lane_name, str) or not isinstance(lane_state, dict):
                 continue
-            summary = summaries.setdefault(
-                lane_name,
-                {
-                    "lane_name": lane_name,
-                    "matched_session_count": 0,
-                    "last_applied_at": None,
-                    "last_attempt_at": None,
-                    "last_decision_reason": None,
-                    "last_session_key": None,
-                    "last_session_id": None,
-                    "last_source": None,
-                },
+            summary = ensure_summary(lane_name)
+            if lane_name not in list(session_state.get("lane_names") or []):
+                summary["matched_session_count"] = int(summary.get("matched_session_count") or 0) + 1
+            maybe_update_latest(
+                summary,
+                applied_at=lane_state.get("last_applied_at"),
+                session_key=session_key,
+                session_state=session_state,
+                lane_state=lane_state,
             )
-            summary["matched_session_count"] = int(summary.get("matched_session_count") or 0) + 1
-            applied_dt = _parse_iso_datetime(lane_state.get("last_applied_at"))
-            current_best = _parse_iso_datetime(summary.get("last_applied_at"))
-            if applied_dt is not None and (current_best is None or applied_dt >= current_best):
-                summary["last_applied_at"] = lane_state.get("last_applied_at")
-                summary["last_attempt_at"] = lane_state.get("last_attempt_at")
-                summary["last_decision_reason"] = lane_state.get("last_decision_reason")
-                summary["last_session_key"] = session_key
-                summary["last_session_id"] = session_state.get("session_id")
-                summary["last_source"] = {
-                    "platform": lane_state.get("platform"),
-                    "chat_id": lane_state.get("chat_id"),
-                    "thread_id": lane_state.get("thread_id"),
-                }
     return summaries
 
 
