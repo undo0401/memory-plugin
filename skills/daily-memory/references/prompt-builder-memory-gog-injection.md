@@ -15,7 +15,7 @@
 2. `build_context_files_prompt()` に二つの節を追加する
    - `## Recent Daily Context`
    - `## GOG Context`
-3. memory は `memory/YYYY-MM-DD.md` の **今日・昨日** を対象にする
+3. memory は `diaries/YYYY-MM-DD.md` の **今日・昨日** を対象にする
 4. memory からは `## 出来事` と `## LINの振り返り` を優先抽出する
 5. GOG は `/opt/data/scripts/gog/gog-context.py --format markdown` のような正本スクリプトを呼ぶ
 6. memory / GOG ともに **char cap** を入れて prompt 膨張を防ぐ
@@ -35,5 +35,5 @@
   - `/opt/data/workspace/overrides/prompt_builder.py`
   - `/opt/data/workspace/overrides/prompt_builder.upstream.py`
 - 注入対象例:
-  - `/opt/data/workspace/memory/YYYY-MM-DD.md`
+  - `/opt/data/workspace/diaries/YYYY-MM-DD.md`
   - `/opt/data/scripts/gog/gog-context.py`

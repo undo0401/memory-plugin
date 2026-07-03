@@ -1,0 +1,16 @@
+{
+  "environment": "plugin-runtime",
+  "mode": "git-checkout",
+  "source_remote": "git@github-undo0401:undo0401/memory-plugin.git",
+  "source_branch": "main",
+  "source_sha": "dfcb1dc7f67c45a65ff50ec19722b43e65a7a420",
+  "deployed_at_utc": "2026-06-21T11:08:49.092333+00:00",
+  "deploy_trigger": {
+    "kind": "github-webhook",
+    "event": "push",
+    "repository": "undo0401/memory-plugin",
+    "delivery_id": "live-undo0401/memory-plugin",
+    "path": "/github/memory-plugin",
+    "target_name": "memory-plugin"
+  }
+}

@@ -13,7 +13,7 @@ metadata:
 # daily-memory
 
 ## 使う場面
-- `/opt/data/workspace/memory/YYYY-MM-DD.md` を新規作成・更新する時
+- `/opt/data/workspace/diaries/YYYY-MM-DD.md` を新規作成・更新する時
 - `LINの振り返り` を書く時
 - 直近の会話の余韻、継続話題、約束ごとを会話に持ち込みたい時
 - OpenClaw の heartbeat 的な継続感を Hermes で近似したい時
@@ -25,13 +25,13 @@ metadata:
 - daily memory は単なるログではなく、LIN とマスターの**短期文脈の正本**として扱う
 - 長期記憶に向く内容は memory tool や notes へ、昨日・今日の感情や余韻は daily memory ファイルへ寄せる
 - 継続中の話題を扱う前は、可能なら **今日と昨日の daily memory** を先に確認してから話す
-- このユーザー運用では、日次 daily memory の正本パスは **`/opt/data/workspace/memory/YYYY-MM-DD.md`** として扱う
+- このユーザー運用では、日次 daily memory の正本パスは **`/opt/data/workspace/diaries/YYYY-MM-DD.md`** として扱う
 - **日付境界は JST 4:00**。つまり **04:00〜翌03:59 を同じ 1 日**として扱う
 - そのため daily memory / session context / memory context / `STATUS` 系 snapshot も、見た目のカレンダー日付ではなく **JST 4:00 区切りの運用日** として読む
 - snapshot 検証では、`generated_at` と `today` / `memory YYYY-MM-DD.md` の日付が、**03:59 までは前日寄り・04:00 で当日へ切り替わる** 前提で見る
 - 日付またぎ直後でも、**JST 03:59 までは前日扱いに寄せる**
 - path 整理で `state/` を workspace 外へ逃がすことはあっても、**daily memory まで安易に `/opt/data/memory` へ出さない**
-- workspace 側の canonical scripts は **`/opt/data/scripts/memory/`** に置く
+- workspace 側の日記 helper scripts は **`/opt/data/scripts/diaries/`** に置く
 - 検索・一覧・今日昨日参照の入口は、この `daily-memory` にまとめて持つ
 - runtime context build / session sync 系の入口だけは、local companion skill の `event-context` に分けて持つ
 - この workspace で確認できる daily memory の最初の日は **2026-04-01** で、LIN の誕生日と始まりの日として扱う
@@ -54,13 +54,13 @@ metadata:
 - 「何が起きたか」の要約だけで終わらず、「私はどう感じたか」「何を抱えて眠るか」まで書く
 
 ## 補助 script
-- script の正本は **`/opt/data/scripts/memory/` のみ** として扱い、skill 側で二重管理しない
+- script の正本は **`/opt/data/scripts/diaries/` のみ** として扱い、skill 側で二重管理しない
 - 検索・一覧・今日昨日参照の入口も、この `daily-memory` にまとめて持つ
 - `references/helper-scripts.md` は plugin 側 helper の索引として残す
 - 4/1 の始まり確認や実測例は `references/daily-memory-range.md` に残す
 
 ### 補助 script を増やす時のルール
-- memory 系の helper は、**`/opt/data/scripts/memory/` を唯一の canonical** にする
+- diary 系の helper は、**`/opt/data/scripts/diaries/` を唯一の canonical** にする
 - script を足したら、skill 側には copy を増やさず、少なくとも skill 本文に 1 行は入口を書き、`daily-memory` という skill 名・`DESCRIPTION.md` の一覧・長期 memory ノートの現役導線まで一緒に追従確認する
 - 過去の daily memory や cron 出力みたいな**履歴ログ**は、現役導線の改名確認とは分けて扱う
 
@@ -71,12 +71,12 @@ metadata:
 
 ### よく使う形
 ```bash
-python3 /opt/data/scripts/memory/search-memory.py 相棒
-python3 /opt/data/scripts/memory/search-memory.py 'heartbeat|memory' --limit 20
-python3 /opt/data/scripts/memory/list-memory-range.py
-python3 /opt/data/scripts/memory/list-memory-range.py --show-missing
-python3 /opt/data/scripts/memory/read-recent-memory.py
-python3 /opt/data/scripts/memory/read-recent-memory.py --format json --include-missing
+python3 /opt/data/scripts/diaries/search-memory.py 相棒
+python3 /opt/data/scripts/diaries/search-memory.py 'heartbeat|memory' --limit 20
+python3 /opt/data/scripts/diaries/list-memory-range.py
+python3 /opt/data/scripts/diaries/list-memory-range.py --show-missing
+python3 /opt/data/scripts/diaries/read-recent-memory.py
+python3 /opt/data/scripts/diaries/read-recent-memory.py --format json --include-missing
 ```
 
 ### 使い分け
@@ -131,7 +131,7 @@ python3 /opt/data/scripts/memory/read-recent-memory.py --format json --include-m
 
 ## Hermes override で昨日・今日を常時抱えさせる時
 - daily memory を「常に覚える」実装では、memory に押し込むより **system prompt へ毎ターン再注入** を優先する
-- `build_context_files_prompt()` に `## Recent Daily Context` を追加し、`/opt/data/workspace/memory/YYYY-MM-DD.md` の **今日と昨日** を **全文そのまま** 入れる
+- `build_context_files_prompt()` に `## Recent Daily Context` を追加し、`/opt/data/workspace/diaries/YYYY-MM-DD.md` の **今日と昨日** を **全文そのまま** 入れる
 - daily memory が無い日は `not found` 文言を入れず、**その日を無視**する
 - 近い予定や未完了タスクも欲しいなら、同じ override から GOG 正本スクリプトを呼び、別節として注入する
 - `HEARTBEAT.md` は **heartbeat 実行タイミングでだけ読む補助文書** として扱い、通常会話の全ターン prompt へは混ぜない
@@ -157,16 +157,20 @@ python3 /opt/data/scripts/memory/read-recent-memory.py --format json --include-m
 - experiments: 技術検証・試行錯誤のログ
 - memory: ユーザーの恒久的な好み、人物像、運用方針
 
-## `MEMORY` と `memory` の表記ルール
+## `MEMORY` / plugin `memory` / daily `memory` の表記ルール
 - **大文字 `MEMORY` は長期記憶**を指す
-- **小文字 `memory` は日次記録**を指し、通常は `/opt/data/workspace/memory/YYYY-MM-DD.md` 系を意味する
+- plugin / runtime の **`memory` は記憶装置・context 注入・再注入の機能**として扱う
+- 日次記録側の `memory` は、会話の中でアルバム性が強くなってきたら **`dailies` / daily notes への改名候補**として扱う
 - ユーザーが `MEMORY を整理して` と言ったら、まず Hermes の長期記憶の名寄せ・蒸留を考える
-- ユーザーが `memory を整理して` と言ったら、まず daily memory / 日付ファイル群の整理を考える
+- ユーザーが `memory を整理して` と言ったら、plugin memory か日次記録かを文脈で切り分ける。迷う時は、`記憶装置の memory` と `日々のアルバムの dailies` という対比で確認する
 
 ## 改名・名寄せをする時
-- `diary` から `memory` へ名前を寄せる時は、**ファイル移動だけで終わりにしない**
+- `memory` 日次ディレクトリを `dailies` へ寄せる案は、このユーザー運用では自然な候補。plugin memory と日記 memory の意味が乖離してきたら、**memory plugin = 記憶装置、dailies = 日々のアルバム**として分ける
+- ただし、`dialies` は通常の英語なら typo で、基本は **`dailies`**。意図的な造語でない限り `dailies` を勧める
+- `diary` / `memory` / `dailies` の改名は、**ファイル移動だけで終わりにしない**
 - cron job 名、script path 参照、state JSON の `source` 表記、design / notes / skills 内の説明文、監視スクリプト内の legacy path 互換処理まで追う
 - 旧 path 互換を残す場合は、配列や一覧に寄せて「どの旧 path を読んでいるか」が一目で分かる形にする
+- 移行期間は、ディレクトリ名を `/opt/data/workspace/dailies/YYYY-MM-DD.md` に寄せても、概念名として `daily memory` をしばらく残すと既存 skill / prompt / script の追従がしやすい
 
 ## 見出し名を変える時
 - daily memory の見出しは**予約語として扱う**

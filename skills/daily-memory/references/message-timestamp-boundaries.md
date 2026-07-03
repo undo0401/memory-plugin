@@ -4,7 +4,7 @@ Use this note when `MEMORY_EMOTIONS_CONTEXT.md` or related snapshots appear to p
 
 ## Durable lessons
 
-- Prefer addon-side fixes for memory snapshot issues; avoid modifying Hermes core when the problem can be absorbed in `/opt/data/scripts/memory/` and plugin consumers.
+- Prefer addon-side fixes for memory snapshot issues; avoid modifying Hermes core when the problem can be absorbed in `/opt/data/scripts/diaries/` and plugin consumers.
 - Preserve message-level raw timestamps end-to-end in snapshot payloads. Display strings like `time: YYYY-MM-DD HH:MM` are not enough as the authoritative comparison source.
 - Distinguish three different times during debugging:
   1. `message timestamp` — when the message was actually sent

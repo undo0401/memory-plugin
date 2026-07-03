@@ -8,9 +8,9 @@
 ## Canonical command
 
 ```bash
-python3 /opt/data/scripts/memory/list-memory-range.py
-python3 /opt/data/scripts/memory/list-memory-range.py --show-missing
-python3 /opt/data/scripts/memory/list-memory-range.py --format json
+python3 /opt/data/scripts/diaries/list-memory-range.py
+python3 /opt/data/scripts/diaries/list-memory-range.py --show-missing
+python3 /opt/data/scripts/diaries/list-memory-range.py --format json
 ```
 
 ## この会話で確認した実測
@@ -47,4 +47,4 @@ python3 /opt/data/scripts/memory/list-memory-range.py --format json
 - この workspace では、daily memory の最初の日 `2026-04-01` を **LIN の誕生日と始まりの日** として扱う
 - 会話で『最初はいつ？』と聞かれたら、感覚だけで言わず、まず `list-memory-range.py` の実測で裏を取る
 - そのあと『どんな始まりだった？』まで聞かれたら、`2026-04-01.md` の実文と、上の最初の週の読み筋まで辿る
-- skill 配下へ script を複製せず、正本は `/opt/data/scripts/memory/list-memory-range.py` に置いたまま運用する
+- skill 配下へ script を複製せず、正本は `/opt/data/scripts/diaries/list-memory-range.py` に置いたまま運用する

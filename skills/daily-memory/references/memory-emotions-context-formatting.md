@@ -1,7 +1,7 @@
 # MEMORY_EMOTIONS_CONTEXT の整形方針
 
 ## 使う場面
-- `/opt/data/scripts/memory/build-memory-context.py` で `MEMORY_EMOTIONS_CONTEXT.md` の見え方を調整する時
+- `/opt/data/scripts/diaries/build-memory-context.py` で `MEMORY_EMOTIONS_CONTEXT.md` の見え方を調整する時
 - emotion context を『ログ一覧』ではなく『感情の断片』として薄く保ちたい時
 
 ## canonical ルール
@@ -15,7 +15,7 @@
 - メッセージ間の**空行区切りだけ**は残して、境界を保つ
 
 ## 実装修理の勘所
-`/opt/data/scripts/memory/build-memory-context.py` では少なくとも次を見る。
+`/opt/data/scripts/diaries/build-memory-context.py` では少なくとも次を見る。
 
 - `message_heading()`
 - `_render_message_lines()`
