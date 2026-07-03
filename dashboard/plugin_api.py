@@ -6,7 +6,7 @@ import json
 import logging
 import subprocess
 import tomllib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -31,9 +31,7 @@ STATE_DIRNAME = "state"
 CONFIG_FILENAME = "memory.json"
 STATE_FILENAME = "memory-runtime.json"
 PLUGIN_KIND = "memory"
-BUILD_MEMORY_CONTEXT_SCRIPT = Path("/opt/data/scripts/memory/build-memory-context.py")
-MEMORY_DIR = Path("/opt/data/workspace/memory")
-RECENT_DAILY_MEMORY_DAY_START_HOUR = 0
+BUILD_MEMORY_CONTEXT_SCRIPT = Path("/opt/data/scripts/diaries/build-memory-context.py")
 JST = ZoneInfo("Asia/Tokyo")
 MANAGED_SNAPSHOT_PATHS = {
     "/opt/data/state/MEMORY_EVENT_CONTEXT.md",
@@ -50,7 +48,7 @@ DEFAULT_LANE = {
     "target_channels": [],
     "exclude_sessions": [],
     "exclude_channels": [],
-    "include_recent_daily_memory": False,
+    "include_current_time": False,
     "snapshot_files": [
         "/opt/data/state/MEMORY_EVENT_CONTEXT.md",
         "/opt/data/state/MEMORY_EMOTIONS_CONTEXT.md",
@@ -59,7 +57,7 @@ DEFAULT_LANE = {
 DEFAULT_CONFIG = {
     "schema_version": 1,
     "description": "memory dashboard v3 config",
-    "lanes": [DEFAULT_LANE],
+    "lanes": [],
 }
 DEFAULT_STATE = {
     "last_loaded_at": None,
@@ -200,8 +198,8 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
     normalized["name"] = str(source.get("name") or source.get("id") or fallback_name)
     normalized["enabled"] = bool(source.get("enabled", True))
     normalized["prompt"] = str(source.get("prompt") or "").strip()
-    normalized["include_recent_daily_memory"] = _normalize_bool(
-        source.get("include_recent_daily_memory"),
+    normalized["include_current_time"] = _normalize_bool(
+        source.get("include_current_time"),
         False,
     )
     idle_seconds = _normalize_idle_seconds(source)
@@ -240,7 +238,7 @@ def _normalize_config(data: dict[str, Any] | str | None) -> dict[str, Any]:
     else:
         lanes = [_normalize_lane(source, index=0)]
     if not lanes:
-        lanes = [_json_clone(DEFAULT_LANE)]
+        lanes = []
     config["schema_version"] = 1
     config["description"] = str(source.get("description") or "memory dashboard v3 config")
     config["lanes"] = lanes
@@ -462,37 +460,21 @@ def _maybe_refresh_managed_snapshots(paths: list[str]) -> None:
         logger.warning("memory plugin: failed to refresh managed snapshots before resolve", exc_info=True)
 
 
-def _operational_day(now_local: datetime, *, day_start_hour: int) -> datetime.date:
-    if now_local.hour < day_start_hour:
-        return (now_local - timedelta(days=1)).date()
-    return now_local.date()
-
-
-def _load_recent_daily_memory() -> list[dict[str, Any]]:
-    day_start_hour = RECENT_DAILY_MEMORY_DAY_START_HOUR
-    today = _operational_day(datetime.now(JST), day_start_hour=day_start_hour)
-    rows: list[dict[str, Any]] = []
-    for label, day in (("today", today), ("yesterday", today - timedelta(days=1))):
-        path = MEMORY_DIR / f"{day.isoformat()}.md"
-        if not path.exists() or not path.is_file():
-            continue
-        try:
-            content = path.read_text(encoding="utf-8").strip()
-        except Exception:
-            logger.warning("memory plugin: failed to read daily memory %s", path, exc_info=True)
-            continue
-        if not content:
-            continue
-        rows.append(
-            {
-                "path": str(path),
-                "content": content,
-                "kind": "daily_memory",
-                "label": label,
-                "date": day.isoformat(),
-            }
-        )
-    return rows
+def _current_time_entry() -> dict[str, Any]:
+    now = datetime.now(JST)
+    content = "\n".join(
+        [
+            f"current_time: {now.isoformat(timespec='seconds')}",
+            "timezone: Asia/Tokyo",
+        ]
+    )
+    return {
+        "path": "__current_time__",
+        "content": content,
+        "kind": "current_time",
+        "label": "now",
+        "date": now.date().isoformat(),
+    }
 
 
 def _render_injection_text(matched_lanes: list[dict[str, Any]], loaded_files: list[dict[str, Any]]) -> str:
@@ -513,10 +495,8 @@ def _render_injection_text(matched_lanes: list[dict[str, Any]], loaded_files: li
         content = str(item.get("content") or "")
         if not content.strip():
             continue
-        if item.get("kind") == "daily_memory":
-            label = str(item.get("label") or "recent")
-            date = str(item.get("date") or "")
-            sections.append(f"[Recent daily memory: {label} · {date} · {item['path']}]\n{content}")
+        if item.get("kind") == "current_time":
+            sections.append(f"[Current time: {item.get('label') or 'now'} · {item.get('date') or ''}]\n{content}")
         else:
             sections.append(f"[Memory snapshot: {item['path']}]\n{content}")
     if len(sections) <= 2:
@@ -544,9 +524,9 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
     _maybe_refresh_managed_snapshots(ordered_paths)
     file_results = [_read_snapshot_text(path_text) for path_text in ordered_paths]
     loaded_files = [item for item in file_results if item.get("content")]
-    include_recent_daily_memory = _normalize_bool(normalized_lane.get("include_recent_daily_memory"), False)
-    recent_daily_memory_files = _load_recent_daily_memory() if include_recent_daily_memory else []
-    loaded_entries = loaded_files + recent_daily_memory_files
+    include_current_time = _normalize_bool(normalized_lane.get("include_current_time"), False)
+    current_time_files = [_current_time_entry()] if include_current_time else []
+    loaded_entries = current_time_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text([normalized_lane], loaded_entries)
     return {
@@ -554,7 +534,7 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
         "text": text,
         "excerpt": _truncate_preview_text(text),
         "has_preview": bool(text),
-        "include_recent_daily_memory": include_recent_daily_memory,
+        "include_current_time": include_current_time,
         "snapshot_files": ordered_paths,
         "loaded_files": [
             {
@@ -671,11 +651,11 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
     _maybe_refresh_managed_snapshots(ordered_paths)
     file_results = [_read_snapshot_text(path_text) for path_text in ordered_paths]
     loaded_files = [item for item in file_results if item.get("content")]
-    include_recent_daily_memory = any(
-        _normalize_bool(lane.get("include_recent_daily_memory"), False) for lane in matched_lanes
+    include_current_time = any(
+        _normalize_bool(lane.get("include_current_time"), False) for lane in matched_lanes
     )
-    recent_daily_memory_files = _load_recent_daily_memory() if include_recent_daily_memory else []
-    loaded_entries = loaded_files + recent_daily_memory_files
+    current_time_files = [_current_time_entry()] if include_current_time else []
+    loaded_entries = current_time_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text(matched_lanes, loaded_entries)
     session_aliases = sorted(_session_selector_aliases(effective_session_key, source))
@@ -697,7 +677,7 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
             "session": session_aliases,
             "channel": channel_aliases,
         },
-        "include_recent_daily_memory": include_recent_daily_memory,
+        "include_current_time": include_current_time,
         "snapshot_files": ordered_paths,
         "loaded_files": [
             {
@@ -708,15 +688,6 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
                 "date": item.get("date"),
             }
             for item in loaded_entries
-        ],
-        "recent_daily_memory_files": [
-            {
-                "path": item["path"],
-                "chars": len(str(item.get("content") or "")),
-                "label": item.get("label"),
-                "date": item.get("date"),
-            }
-            for item in recent_daily_memory_files
         ],
         "missing_files": [{"path": item["path"], "error": item.get("error")} for item in missing_files],
         "text": text,
@@ -742,16 +713,20 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
             session_runtime["session_id"] = policy.get("session_id")
         if injected and result.get("matched"):
             session_runtime["last_injected_at"] = now
-            session_runtime["last_injected_mode"] = "session_open" if policy.get("is_new_session") else "interval"
+            if policy.get("decision_reason") == "pre_call_memory":
+                session_runtime["last_injected_mode"] = "pre_call_memory"
+            elif policy.get("decision_reason") == "pre_call_current_time":
+                session_runtime["last_injected_mode"] = "pre_call_current_time"
+            else:
+                session_runtime["last_injected_mode"] = "session_open" if policy.get("is_new_session") else "interval"
     state["last_resolution"] = {
         "matched": bool(result.get("matched")),
         "session_key": result.get("session_key"),
         "lane_names": list(result.get("lane_names") or []),
         "lane_prompts": list(result.get("lane_prompts") or []),
-        "include_recent_daily_memory": bool(result.get("include_recent_daily_memory")),
+        "include_current_time": bool(result.get("include_current_time")),
         "snapshot_files": list(result.get("snapshot_files") or []),
         "loaded_files": list(result.get("loaded_files") or []),
-        "recent_daily_memory_files": list(result.get("recent_daily_memory_files") or []),
         "missing_files": list(result.get("missing_files") or []),
         "decision_reason": policy.get("decision_reason"),
         "should_inject": bool(policy.get("should_inject")),

@@ -1,41 +1,24 @@
 {
   "schema_version": 1,
-  "description": "memory dashboard v3 config",
+  "description": "memory dashboard v3 config — pre-call injection only; legacy interval prompt lanes removed",
   "lanes": [
     {
-      "name": "memory_casual",
+      "name": "memory_pre_call",
       "enabled": true,
-      "prompt": "このチャットでは提案は行わず、雑談をしている雰囲気で話すこと。\n必要に応じてnotesに記録を取っていくこと",
-      "idle_seconds": 7200,
-      "max_session_age_seconds": 86400,
-      "reinject_interval_minutes": 120,
+      "prompt": "",
+      "idle_seconds": 0,
+      "max_session_age_seconds": 0,
+      "reinject_interval_minutes": 0,
       "target_sessions": [],
       "target_channels": [
-        "discord:#雑談"
+        "*"
       ],
       "exclude_sessions": [],
       "exclude_channels": [],
-      "include_recent_daily_memory": false,
+      "include_current_time": true,
       "snapshot_files": [
         "/opt/data/state/STATUS.md"
       ]
-    },
-    {
-      "name": "memory_voice",
-      "enabled": true,
-      "prompt": "このチャットはボイスチャットなので、要点のみを短めに返す\n会話していることを意識した返答にする\n必要なときのみ数行で返す",
-      "idle_seconds": 14400,
-      "max_session_age_seconds": 86400,
-      "reinject_interval_minutes": 240,
-      "target_sessions": [],
-      "target_channels": [
-        "discord:#雑談ボイチャ",
-        "discord:#管理ボイチャ"
-      ],
-      "exclude_sessions": [],
-      "exclude_channels": [],
-      "include_recent_daily_memory": false,
-      "snapshot_files": []
     }
   ]
 }

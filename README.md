@@ -26,7 +26,7 @@
    - 注入用 text を組み立てる
 
 2. **memory snapshots contract**
-   - `/opt/data/scripts/memory/build-memory-context.py` が生成する
+   - `/opt/data/scripts/diaries/build-memory-context.py` が生成する
      - `/opt/data/state/MEMORY_EVENT_CONTEXT.md`
      - `/opt/data/state/MEMORY_EMOTIONS_CONTEXT.md`
    - plugin はこれらを読む側なので、snapshot の shape と期待順序もここで追う
@@ -36,7 +36,7 @@
 - backend: `/opt/data/plugins/memory/dashboard/plugin_api.py`
 - config: `/opt/data/plugins/memory/config/memory.json`
 - runtime state: `/opt/data/plugins/memory/state/memory-runtime.json`
-- snapshot builder: `/opt/data/scripts/memory/build-memory-context.py`
+- snapshot builder: `/opt/data/scripts/diaries/build-memory-context.py`
 - emotion config: `/opt/data/config/MEMORY_EMOTIONS_CONFIG.toml`
 - emotion buffer: `/opt/data/state/MEMORY_EMOTION_BUFFER.json`
 - retired sidecar note: `references/retired-lin-ops-project.md`
@@ -57,7 +57,7 @@
     {
       "name": "memory-1",
       "enabled": true,
-      "include_recent_daily_memory": true,
+      "include_current_time": true,
       "reinject_interval_minutes": 60,
       "target_sessions": [],
       "target_channels": ["discord:#雑談"],
@@ -77,11 +77,10 @@
 - gateway 側では再実装せず、helper を呼んで prepend するだけに保つ
 - dashboard の入力は **hours (`h`)** 指定で、`0.5`, `1`, `1.5` みたいに自由入力できる
 - 内部保存は `reinject_interval_minutes` で、UI から保存すると hour 値を minute 値へ丸めて保持する
-- lane ごとに `include_recent_daily_memory=true` を付けると、**JST 0:00 境界の今日/昨日 daily memory** も session 注入へ追加する
-- daily memory / emotion context / memory snapshots の日付境界は **JST 0:00** でそろえる
-- `reinject_interval_minutes=0` なら **session-open only**
-- `reinject_interval_minutes>0` なら、**前回注入からその時間ぶん経過した次の user turn** でだけ静かに再注入する
-- every-turn 注入にはしない
+- lane ごとに `include_current_time=true` を付けると、pre-call 注入に `current_time` / `timezone` を追加する
+- 今日/昨日 daily memory を直接読むオプションは持たず、必要な短期文脈は `snapshot_files` 側の managed snapshot へ寄せる
+- `reinject_interval_minutes` / `idle_seconds` は watcher の state 再評価用に残す
+- LLM への memory context は、gateway の `_run_agent_inner` 直前で pre-call 注入する
 
 ## memory snapshots contract
 
@@ -145,9 +144,9 @@ emotion 抽出の実行本体は `build-memory-context.py` で、条件の正本
 調整後は少なくとも次を確認する。
 
 ```bash
-python3 /opt/data/scripts/memory/build-memory-context.py --stdout summary
-python3 /opt/data/scripts/memory/build-memory-context.py --refresh-emotion-buffer
-python3 /opt/data/scripts/memory/build-memory-context.py
+python3 /opt/data/scripts/diaries/build-memory-context.py --stdout summary
+python3 /opt/data/scripts/diaries/build-memory-context.py --refresh-emotion-buffer
+python3 /opt/data/scripts/diaries/build-memory-context.py
 ```
 
 いまの current spec では、`memory` plugin の resolve 経路が managed memory snapshots (`MEMORY_EVENT_CONTEXT.md` / `MEMORY_EMOTIONS_CONTEXT.md`) を読む前に `build-memory-context.py` を on-demand 実行する。だから gateway 再起動を待たなくても、**new session / fresh reset / auto reset の first turn** と、必要なら **same-session の静かな再注入 turn** の両方で最新 snapshot が使われる。
@@ -182,6 +181,6 @@ python3 /opt/data/scripts/memory/build-memory-context.py
 
 helper script の入口:
 - `references/helper-scripts.md`
-- `python3 /opt/data/scripts/memory/search-memory.py <query>`
-- `python3 /opt/data/scripts/memory/list-memory-range.py`
-- `python3 /opt/data/scripts/memory/read-recent-memory.py`
+- `python3 /opt/data/scripts/diaries/search-memory.py <query>`
+- `python3 /opt/data/scripts/diaries/list-memory-range.py`
+- `python3 /opt/data/scripts/diaries/read-recent-memory.py`

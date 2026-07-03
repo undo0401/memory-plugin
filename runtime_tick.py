@@ -132,7 +132,7 @@ def _lane_runtime_entry(api: Any, state: dict[str, Any], session_key: str, lane_
     return lane_state
 
 
-def _candidate_source_rows(api: Any, lane: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+def _candidate_source_rows(api: Any, lane: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
     ordered_paths: list[str] = []
     seen: set[str] = set()
     for raw_path in list(lane.get("snapshot_files") or []):
@@ -144,13 +144,12 @@ def _candidate_source_rows(api: Any, lane: dict[str, Any]) -> tuple[list[str], l
     api._maybe_refresh_managed_snapshots(ordered_paths)
     file_rows = [api._read_snapshot_text(path_text) for path_text in ordered_paths]
     loaded_rows = [item for item in file_rows if item.get("content")]
-    daily_rows = api._load_recent_daily_memory() if api._normalize_bool(lane.get("include_recent_daily_memory"), False) else []
-    return ordered_paths, file_rows, loaded_rows, daily_rows
+    return ordered_paths, file_rows, loaded_rows
 
 
-def _content_hash(file_rows: list[dict[str, Any]], daily_rows: list[dict[str, Any]]) -> str:
+def _content_hash(file_rows: list[dict[str, Any]]) -> str:
     serializable = []
-    for item in list(file_rows) + list(daily_rows):
+    for item in list(file_rows):
         serializable.append(
             {
                 "path": str(item.get("path") or ""),
@@ -165,9 +164,9 @@ def _content_hash(file_rows: list[dict[str, Any]], daily_rows: list[dict[str, An
     return "sha256:" + hashlib.sha256(blob).hexdigest()
 
 
-def _source_mtimes(paths: list[str], daily_rows: list[dict[str, Any]]) -> dict[str, str]:
+def _source_mtimes(paths: list[str]) -> dict[str, str]:
     results: dict[str, str] = {}
-    for raw_path in list(paths) + [str(item.get("path") or "") for item in daily_rows]:
+    for raw_path in list(paths):
         text = str(raw_path or "").strip()
         if not text:
             continue
@@ -187,16 +186,60 @@ def _matching_lanes(api: Any, config: dict[str, Any], session_key: str, source: 
     return {str(lane.get("name") or "") for lane in api._select_matching_lanes(config, session_key, source)}
 
 
+def _resolve_pre_call_memory_context(api: Any, *, session_key: str | None, source: Any) -> tuple[str, dict[str, Any]]:
+    """Return the full configured memory context for matching lanes.
+
+    This is the override-free runtime injection path. It reuses the dashboard
+    resolver so lane prompts, snapshot_files, and current
+    time all follow the same configuration and preview behavior.
+    """
+    config = api.load_config()
+    effective_session_key = api._safe_text(session_key) or api._build_session_key_from_source(source)
+    result = api.resolve_memory_injection(config, effective_session_key, source)
+    text = str(result.get("text") or "").strip()
+    return text, result
+
+
+def _with_pre_call_memory_context(api: Any, *, context_prompt: Any, session_key: str | None, session_id: str | None, source: Any) -> str:
+    base = str(context_prompt or "")
+    text, result = _resolve_pre_call_memory_context(api, session_key=session_key, source=source)
+    if not text:
+        return base
+    policy = {
+        "result": result,
+        "session_key": result.get("session_key") or session_key or "",
+        "session_id": session_id or "",
+        "is_new_session": False,
+        "should_inject": True,
+        "decision_reason": "pre_call_memory",
+        "reinject_interval_minutes": 0,
+        "matched_reinject_intervals": [],
+        "last_injected_at": None,
+        "elapsed_minutes": None,
+    }
+    try:
+        api.update_memory_resolution_state(policy, injected=True)
+    except Exception:
+        logger.debug("memory tick: failed to update pre-call memory state", exc_info=True)
+    logger.debug(
+        "memory tick: pre-call memory context resolved session=%s lanes=%s chars=%d",
+        result.get("session_key") or session_key or "",
+        result.get("lane_names"),
+        len(text),
+    )
+    return (base + "\n\n" + text).strip()
+
+
 async def _apply_memory_tick_for_lane(self, api: Any, state: dict[str, Any], session_key: str, entry: Any, lane: dict[str, Any]) -> bool:
     lane_name = str(lane.get("name") or "")
     if not lane_name:
         return False
     lane_state = _lane_runtime_entry(api, state, session_key, lane_name)
     now = api.now_iso()
-    ordered_paths, file_rows, loaded_rows, daily_rows = _candidate_source_rows(api, lane)
+    ordered_paths, file_rows, loaded_rows = _candidate_source_rows(api, lane)
     missing_rows = [item for item in file_rows if item.get("error")]
-    source_hash = _content_hash(file_rows, daily_rows)
-    source_mtimes = _source_mtimes(ordered_paths, daily_rows)
+    source_hash = _content_hash(file_rows)
+    source_mtimes = _source_mtimes(ordered_paths)
     previous_hash = str(lane_state.get("last_source_hash") or "")
     decision_reason = "source_changed" if source_hash != previous_hash else "source_unchanged"
     source = getattr(entry, "origin", None)
@@ -211,7 +254,7 @@ async def _apply_memory_tick_for_lane(self, api: Any, state: dict[str, Any], ses
     lane_state["last_decision_reason"] = decision_reason
     lane_state["idle_seconds"] = _normalize_float(lane.get("idle_seconds"), 0.0)
     lane_state["reinject_interval_minutes"] = int(api._normalize_reinject_interval_minutes(lane.get("reinject_interval_minutes")))
-    lane_state["include_recent_daily_memory"] = bool(lane.get("include_recent_daily_memory"))
+    lane_state["include_current_time"] = bool(api._normalize_bool(lane.get("include_current_time"), False))
     lane_state["target_kind"] = api._lane_selector_kind(lane)
     lane_state["source_files"] = ordered_paths
     lane_state["loaded_files"] = [
@@ -224,15 +267,7 @@ async def _apply_memory_tick_for_lane(self, api: Any, state: dict[str, Any], ses
         }
         for item in loaded_rows
     ]
-    lane_state["recent_daily_memory_files"] = [
-        {
-            "path": item.get("path"),
-            "chars": len(str(item.get("content") or "")),
-            "label": item.get("label"),
-            "date": item.get("date"),
-        }
-        for item in daily_rows
-    ]
+
     lane_state["missing_files"] = [{"path": item.get("path"), "error": item.get("error")} for item in missing_rows]
     lane_state["last_source_hash"] = source_hash
     lane_state["last_source_mtimes"] = source_mtimes
@@ -420,6 +455,7 @@ def patch_gateway_runner() -> None:
     original_start = GatewayRunner.start
     original_schedule_resume_pending_sessions = GatewayRunner._schedule_resume_pending_sessions
     original_handle_message = GatewayRunner._handle_message
+    original_run_agent_inner = GatewayRunner._run_agent_inner
 
     async def patched_start(self, *args, **kwargs):
         result = await original_start(self, *args, **kwargs)
@@ -437,9 +473,42 @@ def patch_gateway_runner() -> None:
             _memory_tick_hook_wake(self)
         return response
 
+    async def patched_run_agent_inner(self, *args, **kwargs):
+        try:
+            api = _load_plugin_api_module()
+            if len(args) >= 5:
+                next_args = list(args)
+                source = next_args[3]
+                session_id = str(next_args[4] or "")
+                session_key = kwargs.get("session_key")
+                if session_key is None and len(next_args) >= 6:
+                    session_key = next_args[5]
+                next_args[1] = _with_pre_call_memory_context(
+                    api,
+                    context_prompt=next_args[1],
+                    session_key=str(session_key or ""),
+                    session_id=session_id,
+                    source=source,
+                )
+                args = tuple(next_args)
+            else:
+                source = kwargs.get("source")
+                if source is not None:
+                    kwargs["context_prompt"] = _with_pre_call_memory_context(
+                        api,
+                        context_prompt=kwargs.get("context_prompt"),
+                        session_key=str(kwargs.get("session_key") or ""),
+                        session_id=str(kwargs.get("session_id") or ""),
+                        source=source,
+                    )
+        except Exception:
+            logger.debug("memory tick: pre-call current-time patch skipped", exc_info=True)
+        return await original_run_agent_inner(self, *args, **kwargs)
+
     GatewayRunner.start = patched_start
     GatewayRunner._schedule_resume_pending_sessions = patched_schedule_resume_pending_sessions
     GatewayRunner._handle_message = patched_handle_message
+    GatewayRunner._run_agent_inner = patched_run_agent_inner
     GatewayRunner._memory_tick_hook_wake = _memory_tick_hook_wake
     GatewayRunner._ensure_memory_tick_watcher_started = _ensure_memory_tick_watcher_started
     GatewayRunner._memory_tick_hook_patched = True

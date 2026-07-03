@@ -87,7 +87,7 @@
       name: "memory-" + n,
       enabled: true,
       prompt: "",
-      include_recent_daily_memory: false,
+      include_current_time: false,
       idle_seconds: 0,
       reinject_interval_minutes: 0,
       target_sessions: [],
@@ -138,7 +138,7 @@
             name: String(lane.name || ""),
             enabled: !!lane.enabled,
             promptText: String(lane.prompt || ""),
-            includeRecentDailyMemory: !!lane.include_recent_daily_memory,
+            includeCurrentTime: !!lane.include_current_time,
             reinjectIntervalHours: idleSecondsToHoursString(lane.idle_seconds || (lane.reinject_interval_minutes || 0) * 60),
             targetKind: defaultTargetKind(lane),
             targetSessionsText: ((lane.target_sessions || [])).join("\n"),
@@ -212,7 +212,7 @@
         name: String(form.name || "").trim(),
         enabled: !!form.enabled,
         prompt: String(form.promptText || "").trim(),
-        include_recent_daily_memory: !!form.includeRecentDailyMemory,
+        include_current_time: !!form.includeCurrentTime,
         idle_seconds: normalizeIntervalHoursToIdleSeconds(form.reinjectIntervalHours),
         reinject_interval_minutes: Math.round(normalizeIntervalHoursToIdleSeconds(form.reinjectIntervalHours) / 60),
         target_sessions: targetKind === "session" ? splitLines(form.targetSessionsText) : [],
@@ -369,6 +369,7 @@
                     h("span", null, "target · " + targetLabel),
                     h("span", null, "exclude · " + excludeLabel),
                     h("span", null, "prompt · " + promptPreview),
+                    h("span", null, "current time · " + (item.include_current_time ? "inject" : "skip")),
                     h("span", null, "preview · " + (truncate(String(previewInfo.excerpt || ""), 160) || "(none)")),
                     h("span", null, "files · " + (files.length ? truncate(files.join(", "), 160) : "(none)"))
                   )
@@ -392,7 +393,7 @@
       var summaryExcludeText = summaryTargetKind === "channel"
         ? (splitLines(form.excludeChannelsText).join(", ") || "(none)")
         : (splitLines(form.excludeSessionsText).join(", ") || "(none)");
-      var summaryDailyMemory = form.includeRecentDailyMemory ? "today + yesterday" : "off";
+      var summaryCurrentTime = form.includeCurrentTime ? "inject" : "skip";
       var summaryPromptText = String(form.promptText || "").trim() || "(none)";
       var runtimeInfo = laneRuntime(form.name) || {};
       var previewInfo = lanePreview(form.name) || {};
@@ -425,7 +426,7 @@
               h("div", { className: "lin-panel__field" }, h(Label, null, "name"), h(Input, { className: "lin-panel__input", value: form.name || "", onChange: function (e) { setFormValue("name", e.target.value); } })),
               h("div", { className: "lin-panel__field" }, h(Label, null, "tick every (h)"), h(Input, { className: "lin-panel__input", type: "number", min: "0", step: "any", value: form.reinjectIntervalHours || "0", onChange: function (e) { setFormValue("reinjectIntervalHours", e.target.value); } }), h("p", { className: "lin-panel__hint" }, "0 なら tick off。0.5, 1, 1.5 みたいに自由入力できて、最後の activity からその時間以上たった session を watcher が静かに再評価して state だけ更新する。")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "prompt"), h(Textarea, { className: "lin-panel__textarea", value: form.promptText || "", onChange: function (e) { setFormValue("promptText", e.target.value); }, placeholder: "このチャットでは短めに返す\n必要なら数行で返す\nこの lane 用の補助システムプロンプトを書く" }), h("p", { className: "lin-panel__hint" }, "snapshot file とは別に、この lane 専用の補助 prompt をそのまま memory injection へ積めるよ。チャットごとの返答の長さ、温度感、優先ルールみたいな system prompt 的な指示をここへ置く想定。")),
-              h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeRecentDailyMemory, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeRecentDailyMemory", !!v); } }), h(Label, null, form.includeRecentDailyMemory ? "track today + yesterday memory" : "do not track today + yesterday memory")),
+              h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentTime, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentTime", !!v); } }), h(Label, null, "inject current time")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "target type"), h(SelectField, { value: form.targetKind || "session", onChange: function (v) { setFormValue("targetKind", v); }, options: [
                 { value: "session", label: "Session" },
                 { value: "channel", label: "Channel" }
@@ -447,7 +448,7 @@
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last reason"), h("dd", null, String(runtimeInfo.last_decision_reason || "(none)"))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "matched sessions"), h("dd", null, String(runtimeInfo.matched_session_count || 0))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "prompt"), h("dd", null, summaryPromptText)),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "daily memory"), h("dd", null, summaryDailyMemory)),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current time"), h("dd", null, summaryCurrentTime)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "target"), h("dd", null, summaryTargetKind + " · " + summaryTargetText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude"), h("dd", null, summaryTargetKind + " · " + summaryExcludeText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "files"), h("dd", null, splitLines(form.snapshotFilesText).join(", ") || "(none)"))
