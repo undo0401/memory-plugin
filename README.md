@@ -58,6 +58,7 @@
       "name": "memory-1",
       "enabled": true,
       "include_current_time": true,
+      "include_current_source": true,
       "reinject_interval_minutes": 60,
       "target_sessions": [],
       "target_channels": ["discord:#雑談"],
@@ -78,6 +79,7 @@
 - dashboard の入力は **hours (`h`)** 指定で、`0.5`, `1`, `1.5` みたいに自由入力できる
 - 内部保存は `reinject_interval_minutes` で、UI から保存すると hour 値を minute 値へ丸めて保持する
 - lane ごとに `include_current_time=true` を付けると、pre-call 注入に `current_time` / `timezone` を追加する
+- lane ごとに `include_current_source=true` を付けると、pre-call 注入に現在の `platform` / `channel` を追加する
 - 今日/昨日 daily memory を直接読むオプションは持たず、必要な短期文脈は `snapshot_files` 側の managed snapshot へ寄せる
 - `reinject_interval_minutes` / `idle_seconds` は watcher の state 再評価用に残す
 - LLM への memory context は、gateway の `_run_agent_inner` 直前で pre-call 注入する

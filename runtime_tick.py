@@ -255,6 +255,7 @@ async def _apply_memory_tick_for_lane(self, api: Any, state: dict[str, Any], ses
     lane_state["idle_seconds"] = _normalize_float(lane.get("idle_seconds"), 0.0)
     lane_state["reinject_interval_minutes"] = int(api._normalize_reinject_interval_minutes(lane.get("reinject_interval_minutes")))
     lane_state["include_current_time"] = bool(api._normalize_bool(lane.get("include_current_time"), False))
+    lane_state["include_current_source"] = bool(api._normalize_bool(lane.get("include_current_source"), False))
     lane_state["target_kind"] = api._lane_selector_kind(lane)
     lane_state["source_files"] = ordered_paths
     lane_state["loaded_files"] = [

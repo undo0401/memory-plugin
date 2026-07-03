@@ -16,6 +16,7 @@
       "exclude_sessions": [],
       "exclude_channels": [],
       "include_current_time": true,
+      "include_current_source": true,
       "snapshot_files": [
         "/opt/data/state/STATUS.md"
       ]

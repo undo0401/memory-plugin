@@ -49,6 +49,7 @@ DEFAULT_LANE = {
     "exclude_sessions": [],
     "exclude_channels": [],
     "include_current_time": False,
+    "include_current_source": False,
     "snapshot_files": [
         "/opt/data/state/MEMORY_EVENT_CONTEXT.md",
         "/opt/data/state/MEMORY_EMOTIONS_CONTEXT.md",
@@ -200,6 +201,10 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
     normalized["prompt"] = str(source.get("prompt") or "").strip()
     normalized["include_current_time"] = _normalize_bool(
         source.get("include_current_time"),
+        False,
+    )
+    normalized["include_current_source"] = _normalize_bool(
+        source.get("include_current_source"),
         False,
     )
     idle_seconds = _normalize_idle_seconds(source)
@@ -477,6 +482,39 @@ def _current_time_entry() -> dict[str, Any]:
     }
 
 
+def _display_channel_name(source: Any) -> str:
+    chat_name = _safe_text(_source_get(source, "chat_name", ""))
+    if chat_name:
+        parts = [_safe_text(part) for part in chat_name.split(" / ") if _safe_text(part)]
+        if parts:
+            return parts[-1]
+        return chat_name
+    thread_id = _safe_text(_source_get(source, "thread_id", ""))
+    chat_id = _safe_text(_source_get(source, "chat_id", ""))
+    if thread_id and chat_id:
+        return f"{chat_id}:{thread_id}"
+    return thread_id or chat_id or "(runtime source)"
+
+
+def _current_source_entry(source: Any) -> dict[str, Any]:
+    platform = _platform_text(source) or "unknown"
+    chat_name = _safe_text(_source_get(source, "chat_name", ""))
+    channel = _display_channel_name(source)
+    lines = [
+        f"platform: {platform}",
+        f"channel: {channel}",
+    ]
+    if chat_name and chat_name != channel:
+        lines.append(f"chat_name: {chat_name}")
+    return {
+        "path": "__current_source__",
+        "content": "\n".join(lines),
+        "kind": "current_source",
+        "label": channel,
+        "date": None,
+    }
+
+
 def _render_injection_text(matched_lanes: list[dict[str, Any]], loaded_files: list[dict[str, Any]]) -> str:
     if not matched_lanes:
         return ""
@@ -497,6 +535,8 @@ def _render_injection_text(matched_lanes: list[dict[str, Any]], loaded_files: li
             continue
         if item.get("kind") == "current_time":
             sections.append(f"[Current time: {item.get('label') or 'now'} · {item.get('date') or ''}]\n{content}")
+        elif item.get("kind") == "current_source":
+            sections.append(f"[Current source: {item.get('label') or 'runtime source'}]\n{content}")
         else:
             sections.append(f"[Memory snapshot: {item['path']}]\n{content}")
     if len(sections) <= 2:
@@ -526,7 +566,9 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
     loaded_files = [item for item in file_results if item.get("content")]
     include_current_time = _normalize_bool(normalized_lane.get("include_current_time"), False)
     current_time_files = [_current_time_entry()] if include_current_time else []
-    loaded_entries = current_time_files + loaded_files
+    include_current_source = _normalize_bool(normalized_lane.get("include_current_source"), False)
+    current_source_files = [_current_source_entry({})] if include_current_source else []
+    loaded_entries = current_time_files + current_source_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text([normalized_lane], loaded_entries)
     return {
@@ -535,6 +577,7 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
         "excerpt": _truncate_preview_text(text),
         "has_preview": bool(text),
         "include_current_time": include_current_time,
+        "include_current_source": include_current_source,
         "snapshot_files": ordered_paths,
         "loaded_files": [
             {
@@ -655,7 +698,11 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         _normalize_bool(lane.get("include_current_time"), False) for lane in matched_lanes
     )
     current_time_files = [_current_time_entry()] if include_current_time else []
-    loaded_entries = current_time_files + loaded_files
+    include_current_source = any(
+        _normalize_bool(lane.get("include_current_source"), False) for lane in matched_lanes
+    )
+    current_source_files = [_current_source_entry(source)] if include_current_source else []
+    loaded_entries = current_time_files + current_source_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text(matched_lanes, loaded_entries)
     session_aliases = sorted(_session_selector_aliases(effective_session_key, source))
@@ -678,6 +725,7 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
             "channel": channel_aliases,
         },
         "include_current_time": include_current_time,
+        "include_current_source": include_current_source,
         "snapshot_files": ordered_paths,
         "loaded_files": [
             {
@@ -725,6 +773,7 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
         "lane_names": list(result.get("lane_names") or []),
         "lane_prompts": list(result.get("lane_prompts") or []),
         "include_current_time": bool(result.get("include_current_time")),
+        "include_current_source": bool(result.get("include_current_source")),
         "snapshot_files": list(result.get("snapshot_files") or []),
         "loaded_files": list(result.get("loaded_files") or []),
         "missing_files": list(result.get("missing_files") or []),
