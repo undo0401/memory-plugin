@@ -53,29 +53,6 @@
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
-  function normalizeIdleSeconds(value) {
-    var n = parseFloat(value);
-    if (!isFinite(n) || n < 0) return 0;
-    return Math.round(n);
-  }
-  function idleSecondsToHoursString(value) {
-    var seconds = normalizeIdleSeconds(value);
-    if (seconds <= 0) return "0";
-    var hours = seconds / 3600;
-    if (Math.abs(hours - Math.round(hours)) < 0.000001) return String(Math.round(hours));
-    return String(hours.toFixed(2).replace(/\.00$/, "").replace(/(\.\d*[1-9])0+$/, "$1"));
-  }
-  function normalizeIntervalHoursToIdleSeconds(value) {
-    var n = parseFloat(value);
-    if (!isFinite(n) || n < 0) return 0;
-    return Math.round(n * 3600);
-  }
-  function intervalLabel(value) {
-    var seconds = normalizeIdleSeconds(value);
-    if (seconds <= 0) return "off";
-    var hoursText = idleSecondsToHoursString(seconds);
-    return hoursText + " h";
-  }
   function formatTimestamp(value) {
     var text = String(value || "").trim();
     if (!text) return "(never)";
@@ -89,12 +66,15 @@
       prompt: "",
       include_current_time: false,
       include_current_source: false,
+      include_session_gap: false,
       idle_seconds: 0,
       reinject_interval_minutes: 0,
       target_sessions: [],
       target_channels: [],
+      target_profiles: ["default"],
       exclude_sessions: [],
       exclude_channels: [],
+      exclude_profiles: [],
       snapshot_files: []
     };
   }
@@ -141,12 +121,14 @@
             promptText: String(lane.prompt || ""),
             includeCurrentTime: !!lane.include_current_time,
             includeCurrentSource: !!lane.include_current_source,
-            reinjectIntervalHours: idleSecondsToHoursString(lane.idle_seconds || (lane.reinject_interval_minutes || 0) * 60),
+            includeSessionGap: !!lane.include_session_gap,
             targetKind: defaultTargetKind(lane),
             targetSessionsText: ((lane.target_sessions || [])).join("\n"),
             targetChannelsText: ((lane.target_channels || [])).join("\n"),
+            targetProfile: ((lane.target_profiles || [])[0]) || "default",
             excludeSessionsText: ((lane.exclude_sessions || [])).join("\n"),
             excludeChannelsText: ((lane.exclude_channels || [])).join("\n"),
+            excludeProfilesText: ((lane.exclude_profiles || [])).join("\n"),
             snapshotFilesText: ((lane.snapshot_files || [])).join("\n")
           }
         });
@@ -207,6 +189,20 @@
       var previews = (state.payload && state.payload.lane_previews) || {};
       return previews[String(name || "")] || null;
     }
+    function profileOptions() {
+      var rows = (state.payload && Array.isArray(state.payload.available_profiles)) ? state.payload.available_profiles : [];
+      var seen = {};
+      var options = rows.map(function (item) {
+        var value = String((item && item.value) || "").trim();
+        if (!value || seen[value]) return null;
+        seen[value] = true;
+        return { value: value, label: String((item && item.label) || value) };
+      }).filter(Boolean);
+      if (!seen.default) options.unshift({ value: "default", label: "default" });
+      var current = String((state.form && state.form.targetProfile) || "default").trim() || "default";
+      if (!seen[current]) options.push({ value: current, label: current });
+      return options;
+    }
     function buildLanePayload() {
       const form = state.form || {};
       const targetKind = String(form.targetKind || "session") === "channel" ? "channel" : "session";
@@ -216,12 +212,15 @@
         prompt: String(form.promptText || "").trim(),
         include_current_time: !!form.includeCurrentTime,
         include_current_source: !!form.includeCurrentSource,
-        idle_seconds: normalizeIntervalHoursToIdleSeconds(form.reinjectIntervalHours),
-        reinject_interval_minutes: Math.round(normalizeIntervalHoursToIdleSeconds(form.reinjectIntervalHours) / 60),
+        include_session_gap: !!form.includeSessionGap,
+        idle_seconds: 0,
+        reinject_interval_minutes: 0,
         target_sessions: targetKind === "session" ? splitLines(form.targetSessionsText) : [],
         target_channels: targetKind === "channel" ? splitLines(form.targetChannelsText) : [],
+        target_profiles: [String(form.targetProfile || "default").trim() || "default"],
         exclude_sessions: targetKind === "session" ? splitLines(form.excludeSessionsText) : [],
         exclude_channels: targetKind === "channel" ? splitLines(form.excludeChannelsText) : [],
+        exclude_profiles: splitLines(form.excludeProfilesText),
         snapshot_files: splitLines(form.snapshotFilesText)
       };
     }
@@ -333,7 +332,7 @@
             )
           ),
           h(CardContent, { className: "lin-panel__heroContent" },
-            h("p", { className: "lin-panel__lead" }, "一覧から memory 設定を選んで、詳細へ入る形だよ。heartbeat と同じく、まず全体を見てから個別設定へ降りる。memory plugin 内の silent tick watcher がここを正本として見る。"),
+            h("p", { className: "lin-panel__lead" }, "一覧から memory 設定を選んで、詳細へ入る形だよ。heartbeat と同じく、まず全体を見てから個別設定へ降りる。"),
             payload.config_file ? h("p", { className: "lin-panel__path" }, "config: " + payload.config_file) : null,
             state.error ? h("p", { className: "lin-panel__error" }, state.error) : null,
             state.banner ? h("p", { className: "lin-panel__banner" }, state.banner) : null
@@ -342,12 +341,12 @@
         h("div", { className: "lin-panel__list" },
           lanes.map(function (item) {
             var files = Array.isArray(item.snapshot_files) ? item.snapshot_files : [];
-            var reinjectLabel = intervalLabel(item.idle_seconds || (item.reinject_interval_minutes || 0) * 60);
             var targetKind = ((Array.isArray(item.target_channels) && item.target_channels.length) || (Array.isArray(item.exclude_channels) && item.exclude_channels.length)) ? "channel" : "session";
             var targetValues = targetKind === "channel" ? (item.target_channels || []) : (item.target_sessions || []);
             var excludeValues = targetKind === "channel" ? (item.exclude_channels || []) : (item.exclude_sessions || []);
             var targetLabel = targetKind + " · " + (targetValues.join(", ") || "(all)");
             var excludeLabel = targetKind + " · " + (excludeValues.join(", ") || "(none)");
+            var profileLabel = (item.target_profiles || []).join(", ") || "default";
             var promptPreview = truncate(String(item.prompt || ""), 120) || "(none)";
             var runtimeInfo = laneRuntime(item.name) || {};
             var previewInfo = lanePreview(item.name) || {};
@@ -367,13 +366,14 @@
                     )
                   ),
                   h("div", { className: "lin-panel__laneMeta" },
-                    h("span", null, "tick · " + reinjectLabel),
                     h("span", null, "last applied · " + formatTimestamp(runtimeInfo.last_applied_at)),
                     h("span", null, "target · " + targetLabel),
                     h("span", null, "exclude · " + excludeLabel),
+                    h("span", null, "profiles · " + profileLabel),
                     h("span", null, "prompt · " + promptPreview),
                     h("span", null, "current time · " + (item.include_current_time ? "inject" : "skip")),
                     h("span", null, "current channel · " + (item.include_current_source ? "inject" : "skip")),
+                    h("span", null, "session gap · " + (item.include_session_gap ? "inject" : "skip")),
                     h("span", null, "preview · " + (truncate(String(previewInfo.excerpt || ""), 160) || "(none)")),
                     h("span", null, "files · " + (files.length ? truncate(files.join(", "), 160) : "(none)"))
                   )
@@ -389,7 +389,6 @@
     }
 
     function renderDetail() {
-      var summaryIntervalLabel = intervalLabel(normalizeIntervalHoursToIdleSeconds(form.reinjectIntervalHours));
       var summaryTargetKind = String(form.targetKind || "session") === "channel" ? "channel" : "session";
       var summaryTargetText = summaryTargetKind === "channel"
         ? (splitLines(form.targetChannelsText).join(", ") || "(all)")
@@ -397,8 +396,11 @@
       var summaryExcludeText = summaryTargetKind === "channel"
         ? (splitLines(form.excludeChannelsText).join(", ") || "(none)")
         : (splitLines(form.excludeSessionsText).join(", ") || "(none)");
+      var summaryTargetProfiles = String(form.targetProfile || "default").trim() || "default";
+      var summaryExcludeProfiles = splitLines(form.excludeProfilesText).join(", ") || "(none)";
       var summaryCurrentTime = form.includeCurrentTime ? "inject" : "skip";
       var summaryCurrentSource = form.includeCurrentSource ? "inject" : "skip";
+      var summarySessionGap = form.includeSessionGap ? "inject" : "skip";
       var summaryPromptText = String(form.promptText || "").trim() || "(none)";
       var runtimeInfo = laneRuntime(form.name) || {};
       var previewInfo = lanePreview(form.name) || {};
@@ -417,7 +419,7 @@
             )
           ),
           h(CardContent, { className: "lin-panel__heroContent" },
-            h("p", { className: "lin-panel__lead" }, "一覧から選んだ memory 設定をここで触るよ。保存すると silent tick watcher が wake して、新しい内容を拾い直す。heartbeat の sibling 設定面として、全体→個別の流れをそのまま寄せてある。"),
+            h("p", { className: "lin-panel__lead" }, "一覧から選んだ memory 設定をここで触るよ。heartbeat の sibling 設定面として、全体→個別の流れをそのまま寄せてある。"),
             h("p", { className: "lin-panel__path" }, "name: " + (form.name || "")),
             state.error ? h("p", { className: "lin-panel__error" }, state.error) : null,
             state.banner ? h("p", { className: "lin-panel__banner" }, state.banner) : null
@@ -429,16 +431,18 @@
             h(CardContent, { className: "lin-panel__content" },
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.enabled, disabled: !!state.saving, onCheckedChange: function (v) { toggleSelectedLaneEnabled(!!v); } }), h(Label, null, form.enabled ? "enabled" : "disabled")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "name"), h(Input, { className: "lin-panel__input", value: form.name || "", onChange: function (e) { setFormValue("name", e.target.value); } })),
-              h("div", { className: "lin-panel__field" }, h(Label, null, "tick every (h)"), h(Input, { className: "lin-panel__input", type: "number", min: "0", step: "any", value: form.reinjectIntervalHours || "0", onChange: function (e) { setFormValue("reinjectIntervalHours", e.target.value); } }), h("p", { className: "lin-panel__hint" }, "0 なら tick off。0.5, 1, 1.5 みたいに自由入力できて、最後の activity からその時間以上たった session を watcher が静かに再評価して state だけ更新する。")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "prompt"), h(Textarea, { className: "lin-panel__textarea", value: form.promptText || "", onChange: function (e) { setFormValue("promptText", e.target.value); }, placeholder: "このチャットでは短めに返す\n必要なら数行で返す\nこの lane 用の補助システムプロンプトを書く" }), h("p", { className: "lin-panel__hint" }, "snapshot file とは別に、この lane 専用の補助 prompt をそのまま memory injection へ積めるよ。チャットごとの返答の長さ、温度感、優先ルールみたいな system prompt 的な指示をここへ置く想定。")),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentTime, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentTime", !!v); } }), h(Label, null, "inject current time")),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentSource, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentSource", !!v); } }), h(Label, null, "inject current channel")),
+              h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeSessionGap, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeSessionGap", !!v); } }), h(Label, null, "inject session gap")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "target type"), h(SelectField, { value: form.targetKind || "session", onChange: function (v) { setFormValue("targetKind", v); }, options: [
                 { value: "session", label: "Session" },
                 { value: "channel", label: "Channel" }
               ] })),
               h("div", { className: "lin-panel__field" }, h(Label, null, currentTargetLabel()), h(Textarea, { className: "lin-panel__textarea", value: form[currentTargetTextKey()] || "", onChange: function (e) { setFormValue(currentTargetTextKey(), e.target.value); }, placeholder: currentTargetPlaceholder() })),
               h("div", { className: "lin-panel__field" }, h(Label, null, currentExcludeLabel()), h(Textarea, { className: "lin-panel__textarea", value: form[currentExcludeTextKey()] || "", onChange: function (e) { setFormValue(currentExcludeTextKey(), e.target.value); }, placeholder: currentExcludePlaceholder() })),
+              h("div", { className: "lin-panel__field" }, h(Label, null, "target profile"), h(SelectField, { value: form.targetProfile || "default", options: profileOptions(), onChange: function (value) { setFormValue("targetProfile", value || "default"); } })),
+              h("div", { className: "lin-panel__field" }, h(Label, null, "exclude profiles"), h(Textarea, { className: "lin-panel__textarea", value: form.excludeProfilesText || "", onChange: function (e) { setFormValue("excludeProfilesText", e.target.value); }, placeholder: "empty = none" })),
               h("div", { className: "lin-panel__field" }, h(Label, null, "snapshot files"), h(Textarea, { className: "lin-panel__textarea", value: form.snapshotFilesText || "", onChange: function (e) { setFormValue("snapshotFilesText", e.target.value); }, placeholder: "/opt/data/state/MEMORY_EVENT_CONTEXT.md" })),
               h("div", { className: "lin-panel__buttonRow" },
                 h(Button, { type: "button", onClick: save }, state.saving ? "Saving..." : "Save")
@@ -446,25 +450,22 @@
             )
           ),
           h(Card, { className: "lin-panel__card" },
-            h(CardHeader, null, h(CardTitle, null, "Summary")),
+            h(CardHeader, null, h(CardTitle, null, "Summary / preview")),
             h(CardContent, { className: "lin-panel__content" },
               h("div", { className: "lin-panel__summary" },
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "tick"), h("dd", null, summaryIntervalLabel)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last applied"), h("dd", null, formatTimestamp(runtimeInfo.last_applied_at))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last reason"), h("dd", null, String(runtimeInfo.last_decision_reason || "(none)"))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "matched sessions"), h("dd", null, String(runtimeInfo.matched_session_count || 0))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "prompt"), h("dd", null, summaryPromptText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current time"), h("dd", null, summaryCurrentTime)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current channel"), h("dd", null, summaryCurrentSource)),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "session gap"), h("dd", null, summarySessionGap)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "target"), h("dd", null, summaryTargetKind + " · " + summaryTargetText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude"), h("dd", null, summaryTargetKind + " · " + summaryExcludeText)),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "target profile"), h("dd", null, summaryTargetProfiles)),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude profiles"), h("dd", null, summaryExcludeProfiles)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "files"), h("dd", null, splitLines(form.snapshotFilesText).join(", ") || "(none)"))
-              )
-            )
-          ),
-          h(Card, { className: "lin-panel__card" },
-            h(CardHeader, null, h(CardTitle, null, "Preview / runtime")),
-            h(CardContent, { className: "lin-panel__content" },
+              ),
               h("div", { className: "lin-panel__summary" },
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "preview"), h("dd", null, previewInfo.has_preview ? "ready" : "(none)")),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "source session"), h("dd", null, String(runtimeInfo.last_session_key || "(none)")))

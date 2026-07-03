@@ -46,10 +46,13 @@ DEFAULT_LANE = {
     "reinject_interval_minutes": 0,
     "target_sessions": [],
     "target_channels": [],
+    "target_profiles": ["default"],
     "exclude_sessions": [],
     "exclude_channels": [],
+    "exclude_profiles": [],
     "include_current_time": False,
     "include_current_source": False,
+    "include_session_gap": False,
     "snapshot_files": [
         "/opt/data/state/MEMORY_EVENT_CONTEXT.md",
         "/opt/data/state/MEMORY_EMOTIONS_CONTEXT.md",
@@ -117,6 +120,80 @@ def _normalize_lines(values: list[str]) -> list[str]:
         if text:
             normalized.append(text)
     return normalized
+
+
+def _active_profile_name() -> str:
+    try:
+        from hermes_cli.profiles import get_active_profile_name
+
+        return str(get_active_profile_name() or "default").strip() or "default"
+    except Exception:
+        return "default"
+
+
+def _available_profiles() -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add(name: str) -> None:
+        value = str(name or "").strip()
+        if not value or value in seen:
+            return
+        seen.add(value)
+        rows.append({"value": value, "label": value})
+
+    add("default")
+    try:
+        from hermes_cli.profiles import list_profiles
+
+        for info in list_profiles():
+            add(str(getattr(info, "name", "") or ""))
+    except Exception:
+        pass
+
+    candidate_roots = [
+        get_hermes_home() / "profiles",
+        Path("/opt/data/profiles"),
+    ]
+    for root in candidate_roots:
+        try:
+            if not root.is_dir():
+                continue
+            for entry in sorted(root.iterdir()):
+                if entry.is_dir() and entry.name != "default":
+                    add(entry.name)
+        except Exception:
+            continue
+    return rows
+
+
+def _profile_patterns_match(profile: str, patterns: list[str]) -> bool:
+    normalized_patterns = _normalize_lines(patterns)
+    if not normalized_patterns:
+        normalized_patterns = ["default"]
+    profile_text = _safe_text(profile) or "default"
+    aliases = {profile_text, profile_text.lower()}
+    if profile_text == "default":
+        aliases.add("root")
+    for pattern in normalized_patterns:
+        pattern_text = _safe_text(pattern)
+        if pattern_text in {"*", "all", "any"}:
+            continue
+        pattern_lower = pattern_text.lower()
+        for alias in aliases:
+            if fnmatch.fnmatchcase(alias, pattern_text) or fnmatch.fnmatchcase(alias.lower(), pattern_lower):
+                return True
+    return False
+
+
+def _lane_matches_active_profile(lane: dict[str, Any], active_profile: str | None = None) -> bool:
+    profile = _safe_text(active_profile) or _active_profile_name()
+    if not _profile_patterns_match(profile, list(lane.get("target_profiles") or [])):
+        return False
+    exclude_profiles = _normalize_lines(list(lane.get("exclude_profiles") or []))
+    if exclude_profiles and _profile_patterns_match(profile, exclude_profiles):
+        return False
+    return True
 
 
 def _coerce_json_dict(payload: Any, *, context: str) -> dict[str, Any]:
@@ -207,6 +284,10 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
         source.get("include_current_source"),
         False,
     )
+    normalized["include_session_gap"] = _normalize_bool(
+        source.get("include_session_gap"),
+        False,
+    )
     idle_seconds = _normalize_idle_seconds(source)
     normalized["idle_seconds"] = idle_seconds
     normalized["reinject_interval_minutes"] = _normalize_reinject_interval_minutes(
@@ -218,8 +299,10 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
     )
     target_sessions = _normalize_lines(list(source.get("target_sessions") or []))
     target_channels = _normalize_lines(list(source.get("target_channels") or []))
+    target_profiles = _normalize_lines(list(source.get("target_profiles") or [])) or ["default"]
     exclude_sessions = _normalize_lines(list(source.get("exclude_sessions") or []))
     exclude_channels = _normalize_lines(list(source.get("exclude_channels") or []))
+    exclude_profiles = _normalize_lines(list(source.get("exclude_profiles") or []))
     if target_channels or exclude_channels:
         normalized["target_sessions"] = []
         normalized["target_channels"] = target_channels
@@ -230,6 +313,8 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
         normalized["target_channels"] = []
         normalized["exclude_sessions"] = exclude_sessions
         normalized["exclude_channels"] = []
+    normalized["target_profiles"] = target_profiles
+    normalized["exclude_profiles"] = exclude_profiles
     normalized["snapshot_files"] = _normalize_lines(list(source.get("snapshot_files") or []))
     return normalized
 
@@ -418,6 +503,8 @@ def _select_matching_lanes(config: dict[str, Any], session_key: str, source: Any
         normalized_lane = _normalize_lane(lane)
         if not normalized_lane.get("enabled", True):
             continue
+        if not _lane_matches_active_profile(normalized_lane):
+            continue
         selector_kind = _lane_selector_kind(normalized_lane)
         aliases = channel_aliases if selector_kind == "channel" else session_aliases
         target_patterns = _definition_target_patterns(normalized_lane)
@@ -515,6 +602,52 @@ def _current_source_entry(source: Any) -> dict[str, Any]:
     }
 
 
+def _format_elapsed_text(seconds: float) -> str:
+    total_seconds = max(0, int(seconds))
+    days, remainder = divmod(total_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if secs and not parts:
+        parts.append(f"{secs}s")
+    return " ".join(parts) if parts else "0s"
+
+
+def _session_gap_entry(previous_activity_at: Any = None) -> dict[str, Any]:
+    previous_dt = _parse_iso_datetime(previous_activity_at)
+    if previous_dt is None:
+        content = "\n".join(
+            [
+                "previous_activity_at: unknown",
+                "elapsed_since_previous_activity: unknown",
+            ]
+        )
+    else:
+        previous_local = previous_dt.astimezone(JST)
+        now = datetime.now(JST)
+        elapsed_seconds = max(0, int((now - previous_local).total_seconds()))
+        content = "\n".join(
+            [
+                f"previous_activity_at: {previous_local.isoformat(timespec='seconds')}",
+                f"elapsed_since_previous_activity: {_format_elapsed_text(elapsed_seconds)}",
+                f"elapsed_seconds: {elapsed_seconds}",
+            ]
+        )
+    return {
+        "path": "__session_gap__",
+        "content": content,
+        "kind": "session_gap",
+        "label": "previous activity",
+        "date": None,
+    }
+
+
 def _render_injection_text(matched_lanes: list[dict[str, Any]], loaded_files: list[dict[str, Any]]) -> str:
     if not matched_lanes:
         return ""
@@ -537,6 +670,8 @@ def _render_injection_text(matched_lanes: list[dict[str, Any]], loaded_files: li
             sections.append(f"[Current time: {item.get('label') or 'now'} · {item.get('date') or ''}]\n{content}")
         elif item.get("kind") == "current_source":
             sections.append(f"[Current source: {item.get('label') or 'runtime source'}]\n{content}")
+        elif item.get("kind") == "session_gap":
+            sections.append(f"[Session gap: {item.get('label') or 'previous activity'}]\n{content}")
         else:
             sections.append(f"[Memory snapshot: {item['path']}]\n{content}")
     if len(sections) <= 2:
@@ -568,7 +703,9 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
     current_time_files = [_current_time_entry()] if include_current_time else []
     include_current_source = _normalize_bool(normalized_lane.get("include_current_source"), False)
     current_source_files = [_current_source_entry({})] if include_current_source else []
-    loaded_entries = current_time_files + current_source_files + loaded_files
+    include_session_gap = _normalize_bool(normalized_lane.get("include_session_gap"), False)
+    session_gap_files = [_session_gap_entry()] if include_session_gap else []
+    loaded_entries = current_time_files + current_source_files + session_gap_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text([normalized_lane], loaded_entries)
     return {
@@ -578,6 +715,7 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
         "has_preview": bool(text),
         "include_current_time": include_current_time,
         "include_current_source": include_current_source,
+        "include_session_gap": include_session_gap,
         "snapshot_files": ordered_paths,
         "loaded_files": [
             {
@@ -678,7 +816,7 @@ def resolve_memory_injection_policy(
     }
 
 
-def resolve_memory_injection(config: dict[str, Any], session_key: str, source: Any) -> dict[str, Any]:
+def resolve_memory_injection(config: dict[str, Any], session_key: str, source: Any, *, session_gap: dict[str, Any] | None = None) -> dict[str, Any]:
     normalized_config = _normalize_config(config)
     effective_session_key = _safe_text(session_key) or _build_session_key_from_source(source)
     matched_lanes = _select_matching_lanes(normalized_config, effective_session_key, source)
@@ -702,14 +840,25 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         _normalize_bool(lane.get("include_current_source"), False) for lane in matched_lanes
     )
     current_source_files = [_current_source_entry(source)] if include_current_source else []
-    loaded_entries = current_time_files + current_source_files + loaded_files
+    include_session_gap = any(
+        _normalize_bool(lane.get("include_session_gap"), False) for lane in matched_lanes
+    )
+    session_gap_files = []
+    if include_session_gap:
+        previous_activity_at = None
+        if isinstance(session_gap, dict):
+            previous_activity_at = session_gap.get("previous_activity_at")
+        session_gap_files = [_session_gap_entry(previous_activity_at)]
+    loaded_entries = current_time_files + current_source_files + session_gap_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text(matched_lanes, loaded_entries)
     session_aliases = sorted(_session_selector_aliases(effective_session_key, source))
     channel_aliases = sorted(_channel_selector_aliases(source))
+    active_profile = _active_profile_name()
     return {
         "matched": bool(text),
         "session_key": effective_session_key,
+        "active_profile": active_profile,
         "lane_names": [str(lane.get("name") or "") for lane in matched_lanes],
         "lane_prompts": [
             {
@@ -726,6 +875,7 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         },
         "include_current_time": include_current_time,
         "include_current_source": include_current_source,
+        "include_session_gap": include_session_gap,
         "snapshot_files": ordered_paths,
         "loaded_files": [
             {
@@ -770,10 +920,12 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
     state["last_resolution"] = {
         "matched": bool(result.get("matched")),
         "session_key": result.get("session_key"),
+        "active_profile": result.get("active_profile"),
         "lane_names": list(result.get("lane_names") or []),
         "lane_prompts": list(result.get("lane_prompts") or []),
         "include_current_time": bool(result.get("include_current_time")),
         "include_current_source": bool(result.get("include_current_source")),
+        "include_session_gap": bool(result.get("include_session_gap")),
         "snapshot_files": list(result.get("snapshot_files") or []),
         "loaded_files": list(result.get("loaded_files") or []),
         "missing_files": list(result.get("missing_files") or []),
@@ -846,6 +998,8 @@ async def get_config() -> dict[str, Any]:
         "kind": PLUGIN_KIND,
         "config_file": str(config_path()),
         "state_file": str(state_path()),
+        "active_profile": _active_profile_name(),
+        "available_profiles": _available_profiles(),
         "config": config,
         "runtime": state,
         "lane_runtime": _memory_lane_runtime_summary(state),

@@ -1,6 +1,6 @@
 # memory plugin
 
-`memory` plugin は、この workspace では **session-open injection / same-session の静かな再注入 / memory snapshots の入口**をまとめて持つ場所だよ。
+`memory` plugin は、この workspace では **pre-call injection / memory snapshots の入口**をまとめて持つ場所だよ。
 
 ## canonical relation
 
@@ -19,9 +19,8 @@
 この plugin 側で正本にするものは次の 2 系統。
 
 1. **session-aware injection**
-   - new session / fresh reset / auto reset の first turn では注入する
-   - その後も lane ごとの `reinject_interval_minutes` が有効なら、**前回注入から設定時間以上たった次の user turn** で静かに再注入する
-   - 内部 event や out-of-band ping では再注入しない
+   - LLM call の直前に lane 判定して注入する
+   - 内部 event や out-of-band ping では必要以上に膨らませない
    - lane 判定して `snapshot_files` を読む
    - 注入用 text を組み立てる
 
@@ -59,11 +58,14 @@
       "enabled": true,
       "include_current_time": true,
       "include_current_source": true,
-      "reinject_interval_minutes": 60,
+      "include_session_gap": true,
+      "reinject_interval_minutes": 0,
       "target_sessions": [],
       "target_channels": ["discord:#雑談"],
+      "target_profiles": ["default"],
       "exclude_sessions": [],
       "exclude_channels": [],
+      "exclude_profiles": [],
       "snapshot_files": ["/opt/data/state/STATUS.md"]
     }
   ]
@@ -75,13 +77,13 @@
 - lane selector の正本は `plugin_api.py`
 - `target_channels` が入っている lane は channel 基準で評価する
 - 空なら `target_sessions` を使う
+- `target_profiles` / `exclude_profiles` で、現在の Hermes profile 名（例: `default`, `coder`）を絞り込む。`target_profiles` が空なら `default` に正規化する
+- dashboard では `target profile` をドロップダウンで選び、保存時は `target_profiles: ["<profile>"]` として保持する
 - gateway 側では再実装せず、helper を呼んで prepend するだけに保つ
-- dashboard の入力は **hours (`h`)** 指定で、`0.5`, `1`, `1.5` みたいに自由入力できる
-- 内部保存は `reinject_interval_minutes` で、UI から保存すると hour 値を minute 値へ丸めて保持する
 - lane ごとに `include_current_time=true` を付けると、pre-call 注入に `current_time` / `timezone` を追加する
 - lane ごとに `include_current_source=true` を付けると、pre-call 注入に現在の `platform` / `channel` を追加する
 - 今日/昨日 daily memory を直接読むオプションは持たず、必要な短期文脈は `snapshot_files` 側の managed snapshot へ寄せる
-- `reinject_interval_minutes` / `idle_seconds` は watcher の state 再評価用に残す
+- `reinject_interval_minutes` / `idle_seconds` は legacy config 互換用に残すが、dashboard からは編集しない
 - LLM への memory context は、gateway の `_run_agent_inner` 直前で pre-call 注入する
 
 ## memory snapshots contract
@@ -151,7 +153,7 @@ python3 /opt/data/scripts/diaries/build-memory-context.py --refresh-emotion-buff
 python3 /opt/data/scripts/diaries/build-memory-context.py
 ```
 
-いまの current spec では、`memory` plugin の resolve 経路が managed memory snapshots (`MEMORY_EVENT_CONTEXT.md` / `MEMORY_EMOTIONS_CONTEXT.md`) を読む前に `build-memory-context.py` を on-demand 実行する。だから gateway 再起動を待たなくても、**new session / fresh reset / auto reset の first turn** と、必要なら **same-session の静かな再注入 turn** の両方で最新 snapshot が使われる。
+いまの current spec では、`memory` plugin の resolve 経路が managed memory snapshots (`MEMORY_EVENT_CONTEXT.md` / `MEMORY_EMOTIONS_CONTEXT.md`) を読む前に `build-memory-context.py` を on-demand 実行する。だから gateway 再起動を待たなくても、LLM call 直前の pre-call injection で最新 snapshot が使われる。
 
 見る場所:
 - `top_keywords=`

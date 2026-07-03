@@ -7,7 +7,7 @@
       "enabled": true,
       "prompt": "",
       "idle_seconds": 0,
-      "max_session_age_seconds": 0,
+      "max_session_age_seconds": 86400,
       "reinject_interval_minutes": 0,
       "target_sessions": [],
       "target_channels": [
@@ -15,8 +15,7 @@
       ],
       "exclude_sessions": [],
       "exclude_channels": [],
-      "include_current_time": true,
-      "include_current_source": true,
+      "include_recent_daily_memory": false,
       "snapshot_files": [
         "/opt/data/state/STATUS.md"
       ]
