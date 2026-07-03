@@ -77,6 +77,7 @@
 - lane selector の正本は `plugin_api.py`
 - `target_channels` が入っている lane は channel 基準で評価する
 - 空なら `target_sessions` を使う
+- dashboard では `target type` と `scope`（全て / 対象 / 除外）を選び、その下の入力欄1つで selector を編集する。`scope=全て` または入力欄が空なら target/exclude は空配列になり、実質全て対象として扱う
 - `target_profiles` / `exclude_profiles` で、現在の Hermes profile 名（例: `default`, `coder`）を絞り込む。`target_profiles` が空なら `default` に正規化する
 - dashboard では `target profile` をドロップダウンで選び、保存時は `target_profiles: ["<profile>"]` として保持する
 - gateway 側では再実装せず、helper を呼んで prepend するだけに保つ

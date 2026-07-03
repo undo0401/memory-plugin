@@ -79,13 +79,22 @@
     };
   }
   function defaultTargetKind(lane) {
-    const sessions = Array.isArray(lane && lane.target_sessions) ? lane.target_sessions : [];
-    const channels = Array.isArray(lane && lane.target_channels) ? lane.target_channels : [];
+    const sessions = Array.isArray(lane && lane.target_sessions) ? lane.target_sessions.filter(function (item) { return item !== "*"; }) : [];
+    const channels = Array.isArray(lane && lane.target_channels) ? lane.target_channels.filter(function (item) { return item !== "*"; }) : [];
     const excludeSessions = Array.isArray(lane && lane.exclude_sessions) ? lane.exclude_sessions : [];
     const excludeChannels = Array.isArray(lane && lane.exclude_channels) ? lane.exclude_channels : [];
     if (channels.length || excludeChannels.length) return "channel";
     if (sessions.length || excludeSessions.length) return "session";
     return "session";
+  }
+  function defaultScopeMode(lane) {
+    const sessions = Array.isArray(lane && lane.target_sessions) ? lane.target_sessions.filter(function (item) { return item !== "*"; }) : [];
+    const channels = Array.isArray(lane && lane.target_channels) ? lane.target_channels.filter(function (item) { return item !== "*"; }) : [];
+    const excludeSessions = Array.isArray(lane && lane.exclude_sessions) ? lane.exclude_sessions : [];
+    const excludeChannels = Array.isArray(lane && lane.exclude_channels) ? lane.exclude_channels : [];
+    if (sessions.length || channels.length) return "target";
+    if (excludeSessions.length || excludeChannels.length) return "exclude";
+    return "all";
   }
 
   function Page() {
@@ -123,8 +132,9 @@
             includeCurrentSource: !!lane.include_current_source,
             includeSessionGap: !!lane.include_session_gap,
             targetKind: defaultTargetKind(lane),
-            targetSessionsText: ((lane.target_sessions || [])).join("\n"),
-            targetChannelsText: ((lane.target_channels || [])).join("\n"),
+            scopeMode: defaultScopeMode(lane),
+            targetSessionsText: ((lane.target_sessions || []).filter(function (item) { return item !== "*"; })).join("\n"),
+            targetChannelsText: ((lane.target_channels || []).filter(function (item) { return item !== "*"; })).join("\n"),
             targetProfile: ((lane.target_profiles || [])[0]) || "default",
             excludeSessionsText: ((lane.exclude_sessions || [])).join("\n"),
             excludeChannelsText: ((lane.exclude_channels || [])).join("\n"),
@@ -153,23 +163,23 @@
     function setFormValue(key, value) {
       setState(function (prev) { return Object.assign({}, prev, { form: Object.assign({}, prev.form || {}, { [key]: value }) }); });
     }
-    function currentTargetTextKey() {
-      return String((state.form && state.form.targetKind) || "session") === "channel" ? "targetChannelsText" : "targetSessionsText";
+    function currentScopeTextKey() {
+      var kind = String((state.form && state.form.targetKind) || "session") === "channel" ? "channel" : "session";
+      var mode = String((state.form && state.form.scopeMode) || "all");
+      if (mode === "exclude") return kind === "channel" ? "excludeChannelsText" : "excludeSessionsText";
+      return kind === "channel" ? "targetChannelsText" : "targetSessionsText";
     }
-    function currentExcludeTextKey() {
-      return String((state.form && state.form.targetKind) || "session") === "channel" ? "excludeChannelsText" : "excludeSessionsText";
+    function currentScopeLabel() {
+      var mode = String((state.form && state.form.scopeMode) || "all");
+      if (mode === "target") return "target values";
+      if (mode === "exclude") return "exclude values";
+      return "values";
     }
-    function currentTargetLabel() {
-      return "target";
-    }
-    function currentExcludeLabel() {
-      return "exclude";
-    }
-    function currentTargetPlaceholder() {
-      return String((state.form && state.form.targetKind) || "session") === "channel" ? "empty = all channels" : "empty = all sessions";
-    }
-    function currentExcludePlaceholder() {
-      return String((state.form && state.form.targetKind) || "session") === "channel" ? "empty = none" : "empty = none";
+    function currentScopePlaceholder() {
+      var mode = String((state.form && state.form.scopeMode) || "all");
+      var kind = String((state.form && state.form.targetKind) || "session") === "channel" ? "channel" : "session";
+      if (mode === "all") return "scope is all; no input needed";
+      return kind === "channel" ? "one channel selector per line" : "one session selector per line";
     }
     function currentConfig() {
       return (state.payload && state.payload.config) || { schema_version: 1, description: "memory dashboard v3 config", lanes: [] };
@@ -206,6 +216,10 @@
     function buildLanePayload() {
       const form = state.form || {};
       const targetKind = String(form.targetKind || "session") === "channel" ? "channel" : "session";
+      const scopeMode = String(form.scopeMode || "all");
+      const scopeValues = scopeMode === "all" ? [] : splitLines(form[currentScopeTextKey()]);
+      const useTarget = scopeMode === "target" && scopeValues.length > 0;
+      const useExclude = scopeMode === "exclude" && scopeValues.length > 0;
       return {
         name: String(form.name || "").trim(),
         enabled: !!form.enabled,
@@ -215,11 +229,11 @@
         include_session_gap: !!form.includeSessionGap,
         idle_seconds: 0,
         reinject_interval_minutes: 0,
-        target_sessions: targetKind === "session" ? splitLines(form.targetSessionsText) : [],
-        target_channels: targetKind === "channel" ? splitLines(form.targetChannelsText) : [],
+        target_sessions: useTarget && targetKind === "session" ? scopeValues : [],
+        target_channels: useTarget && targetKind === "channel" ? scopeValues : [],
         target_profiles: [String(form.targetProfile || "default").trim() || "default"],
-        exclude_sessions: targetKind === "session" ? splitLines(form.excludeSessionsText) : [],
-        exclude_channels: targetKind === "channel" ? splitLines(form.excludeChannelsText) : [],
+        exclude_sessions: useExclude && targetKind === "session" ? scopeValues : [],
+        exclude_channels: useExclude && targetKind === "channel" ? scopeValues : [],
         exclude_profiles: splitLines(form.excludeProfilesText),
         snapshot_files: splitLines(form.snapshotFilesText)
       };
@@ -341,8 +355,8 @@
         h("div", { className: "lin-panel__list" },
           lanes.map(function (item) {
             var files = Array.isArray(item.snapshot_files) ? item.snapshot_files : [];
-            var targetKind = ((Array.isArray(item.target_channels) && item.target_channels.length) || (Array.isArray(item.exclude_channels) && item.exclude_channels.length)) ? "channel" : "session";
-            var targetValues = targetKind === "channel" ? (item.target_channels || []) : (item.target_sessions || []);
+            var targetKind = ((Array.isArray(item.target_channels) && item.target_channels.filter(function (value) { return value !== "*"; }).length) || (Array.isArray(item.exclude_channels) && item.exclude_channels.length)) ? "channel" : "session";
+            var targetValues = targetKind === "channel" ? ((item.target_channels || []).filter(function (value) { return value !== "*"; })) : ((item.target_sessions || []).filter(function (value) { return value !== "*"; }));
             var excludeValues = targetKind === "channel" ? (item.exclude_channels || []) : (item.exclude_sessions || []);
             var targetLabel = targetKind + " · " + (targetValues.join(", ") || "(all)");
             var excludeLabel = targetKind + " · " + (excludeValues.join(", ") || "(none)");
@@ -390,12 +404,13 @@
 
     function renderDetail() {
       var summaryTargetKind = String(form.targetKind || "session") === "channel" ? "channel" : "session";
-      var summaryTargetText = summaryTargetKind === "channel"
-        ? (splitLines(form.targetChannelsText).join(", ") || "(all)")
-        : (splitLines(form.targetSessionsText).join(", ") || "(all)");
-      var summaryExcludeText = summaryTargetKind === "channel"
-        ? (splitLines(form.excludeChannelsText).join(", ") || "(none)")
-        : (splitLines(form.excludeSessionsText).join(", ") || "(none)");
+      var summaryScopeMode = String(form.scopeMode || "all");
+      var summaryScopeValues = summaryScopeMode === "target"
+        ? (summaryTargetKind === "channel" ? splitLines(form.targetChannelsText) : splitLines(form.targetSessionsText))
+        : (summaryScopeMode === "exclude" ? (summaryTargetKind === "channel" ? splitLines(form.excludeChannelsText) : splitLines(form.excludeSessionsText)) : []);
+      if (!summaryScopeValues.length) summaryScopeMode = "all";
+      var summaryTargetText = summaryScopeMode === "target" ? summaryScopeValues.join(", ") : "(all)";
+      var summaryExcludeText = summaryScopeMode === "exclude" ? summaryScopeValues.join(", ") : "(none)";
       var summaryTargetProfiles = String(form.targetProfile || "default").trim() || "default";
       var summaryExcludeProfiles = splitLines(form.excludeProfilesText).join(", ") || "(none)";
       var summaryCurrentTime = form.includeCurrentTime ? "inject" : "skip";
@@ -430,8 +445,9 @@
             h(CardHeader, null, h(CardTitle, null, "Settings")),
             h(CardContent, { className: "lin-panel__content" },
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.enabled, disabled: !!state.saving, onCheckedChange: function (v) { toggleSelectedLaneEnabled(!!v); } }), h(Label, null, form.enabled ? "enabled" : "disabled")),
-              h("div", { className: "lin-panel__field" }, h(Label, null, "name"), h(Input, { className: "lin-panel__input", value: form.name || "", onChange: function (e) { setFormValue("name", e.target.value); } })),
-              h("div", { className: "lin-panel__field" }, h(Label, null, "prompt"), h(Textarea, { className: "lin-panel__textarea", value: form.promptText || "", onChange: function (e) { setFormValue("promptText", e.target.value); }, placeholder: "このチャットでは短めに返す\n必要なら数行で返す\nこの lane 用の補助システムプロンプトを書く" }), h("p", { className: "lin-panel__hint" }, "snapshot file とは別に、この lane 専用の補助 prompt をそのまま memory injection へ積めるよ。チャットごとの返答の長さ、温度感、優先ルールみたいな system prompt 的な指示をここへ置く想定。")),
+              h("div", { className: "lin-panel__field" }, h(Label, null, "name"), h(Input, { className: "lin-panel__input", value: form.name || "", onChange: function (e) { setFormValue("name", e.target.value); }, placeholder: "setting name" })),
+              h("div", { className: "lin-panel__field" }, h(Label, null, "target profile"), h(SelectField, { value: form.targetProfile || "default", options: profileOptions(), onChange: function (value) { setFormValue("targetProfile", value || "default"); } })),
+              h("div", { className: "lin-panel__field" }, h(Label, null, "prompt"), h(Textarea, { className: "lin-panel__textarea", value: form.promptText || "", onChange: function (e) { setFormValue("promptText", e.target.value); }, placeholder: "Optional guidance for this setting" }), h("p", { className: "lin-panel__hint" }, "snapshot file とは別に、この lane 専用の補助 prompt を memory injection へ積めるよ。")),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentTime, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentTime", !!v); } }), h(Label, null, "inject current time")),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentSource, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentSource", !!v); } }), h(Label, null, "inject current channel")),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeSessionGap, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeSessionGap", !!v); } }), h(Label, null, "inject session gap")),
@@ -439,11 +455,14 @@
                 { value: "session", label: "Session" },
                 { value: "channel", label: "Channel" }
               ] })),
-              h("div", { className: "lin-panel__field" }, h(Label, null, currentTargetLabel()), h(Textarea, { className: "lin-panel__textarea", value: form[currentTargetTextKey()] || "", onChange: function (e) { setFormValue(currentTargetTextKey(), e.target.value); }, placeholder: currentTargetPlaceholder() })),
-              h("div", { className: "lin-panel__field" }, h(Label, null, currentExcludeLabel()), h(Textarea, { className: "lin-panel__textarea", value: form[currentExcludeTextKey()] || "", onChange: function (e) { setFormValue(currentExcludeTextKey(), e.target.value); }, placeholder: currentExcludePlaceholder() })),
-              h("div", { className: "lin-panel__field" }, h(Label, null, "target profile"), h(SelectField, { value: form.targetProfile || "default", options: profileOptions(), onChange: function (value) { setFormValue("targetProfile", value || "default"); } })),
-              h("div", { className: "lin-panel__field" }, h(Label, null, "exclude profiles"), h(Textarea, { className: "lin-panel__textarea", value: form.excludeProfilesText || "", onChange: function (e) { setFormValue("excludeProfilesText", e.target.value); }, placeholder: "empty = none" })),
-              h("div", { className: "lin-panel__field" }, h(Label, null, "snapshot files"), h(Textarea, { className: "lin-panel__textarea", value: form.snapshotFilesText || "", onChange: function (e) { setFormValue("snapshotFilesText", e.target.value); }, placeholder: "/opt/data/state/MEMORY_EVENT_CONTEXT.md" })),
+              h("div", { className: "lin-panel__field" }, h(Label, null, "scope"), h(SelectField, { value: form.scopeMode || "all", onChange: function (v) { setFormValue("scopeMode", v || "all"); }, options: [
+                { value: "all", label: "全て" },
+                { value: "target", label: "対象" },
+                { value: "exclude", label: "除外" }
+              ] })),
+              h("div", { className: "lin-panel__field" }, h(Label, null, currentScopeLabel()), h(Textarea, { className: "lin-panel__textarea", disabled: String(form.scopeMode || "all") === "all", value: String(form.scopeMode || "all") === "all" ? "" : (form[currentScopeTextKey()] || ""), onChange: function (e) { setFormValue(currentScopeTextKey(), e.target.value); }, placeholder: currentScopePlaceholder() })),
+              h("div", { className: "lin-panel__field" }, h(Label, null, "exclude profiles"), h(Textarea, { className: "lin-panel__textarea", value: form.excludeProfilesText || "", onChange: function (e) { setFormValue("excludeProfilesText", e.target.value); }, placeholder: "one profile per line" })),
+              h("div", { className: "lin-panel__field" }, h(Label, null, "snapshot files"), h(Textarea, { className: "lin-panel__textarea", value: form.snapshotFilesText || "", onChange: function (e) { setFormValue("snapshotFilesText", e.target.value); }, placeholder: "/path/to/snapshot.md" })),
               h("div", { className: "lin-panel__buttonRow" },
                 h(Button, { type: "button", onClick: save }, state.saving ? "Saving..." : "Save")
               )
