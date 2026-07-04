@@ -50,6 +50,52 @@
   function Pill(props) {
     return h("span", { className: "lin-panel__pill lin-panel__pill--" + (props.tone || "muted") }, props.children);
   }
+  function asCount(value, fallback) {
+    var n = Number(value);
+    return Number.isFinite(n) ? n : (Number.isFinite(Number(fallback)) ? Number(fallback) : 0);
+  }
+  function topSummary(payload, lanes) {
+    var list = Array.isArray(lanes) ? lanes : [];
+    var raw = (payload && payload.summary) || {};
+    var runtime = (payload && payload.runtime && payload.runtime.session_runtime) || {};
+    var laneRuntime = (payload && payload.lane_runtime) || {};
+    return {
+      enabled_lanes: asCount(raw.enabled_lanes, list.filter(function (lane) { return !!lane.enabled; }).length),
+      tracked: asCount(raw.tracked, Object.keys(laneRuntime).length),
+      sessions: asCount(raw.sessions, runtime && typeof runtime === "object" ? Object.keys(runtime).length : 0),
+      disabled: asCount(raw.disabled, list.filter(function (lane) { return !lane.enabled; }).length)
+    };
+  }
+  function TopSummary(props) {
+    var item = props.summary || {};
+    return h("p", { className: "lin-panel__path" },
+      "enabled " + asCount(item.enabled_lanes, 0) +
+      " / disabled " + asCount(item.disabled, 0) +
+      " / tracked " + asCount(item.tracked, 0) +
+      " / sessions " + asCount(item.sessions, 0)
+    );
+  }
+  function NameCheckboxPicker(props) {
+    var available = Array.isArray(props.available) ? props.available : [];
+    var selected = Array.isArray(props.selected) ? props.selected : [];
+    var names = available.map(function (item) { return String(item.name || ""); });
+    var orphaned = selected.filter(function (name) { return names.indexOf(name) < 0; }).map(function (name) { return { name: name, description: "" }; });
+    var all = orphaned.concat(available);
+    if (!all.length) return h("p", { className: "lin-panel__hint" }, props.emptyLabel || "No items available.");
+    function toggle(name, checked) {
+      if (checked && selected.indexOf(name) < 0) props.onChange(selected.concat([name]));
+      else if (!checked) props.onChange(selected.filter(function (item) { return item !== name; }));
+    }
+    return h("div", { id: props.id, className: "lin-panel__textarea", style: { maxHeight: "9rem", overflowY: "auto", minHeight: "0", padding: "0.25rem" } },
+      all.map(function (item) {
+        var name = String(item.name || "");
+        return h("label", { key: name, title: item.description || undefined, className: "lin-panel__fieldRowCheckbox", style: { padding: "0.25rem 0.35rem" } },
+          h("input", { type: "checkbox", className: "accent-foreground", checked: selected.indexOf(name) >= 0, onChange: function (e) { toggle(name, !!e.target.checked); } }),
+          h("span", { className: "font-mono-ui truncate" }, name)
+        );
+      })
+    );
+  }
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
@@ -113,6 +159,7 @@
       exclude_sessions: [],
       exclude_channels: [],
       exclude_profiles: [],
+      skills: [],
       snapshot_files: []
     };
   }
@@ -144,9 +191,11 @@
       payload: null,
       form: null,
       selectedLaneName: null,
-      view: "list"
+      view: "list",
+      availableSkills: []
     });
     const laneEpochRef = React.useRef(0);
+    const configRequestSeqRef = React.useRef(0);
     const activeLaneRef = React.useRef(null);
 
     useEffect(function () {
@@ -167,6 +216,7 @@
             name: String(lane.name || ""),
             enabled: !!lane.enabled,
             promptText: String(lane.prompt || ""),
+            skills: Array.isArray(lane.skills) ? lane.skills.slice() : [],
             includeCurrentTime: !!lane.include_current_time,
             includeCurrentSource: !!lane.include_current_source,
             includeSessionGap: !!lane.include_session_gap,
@@ -185,13 +235,21 @@
 
     const load = useCallback(function (desiredLaneName) {
       const laneEpoch = laneEpochRef.current;
+      const requestSeq = ++configRequestSeqRef.current;
       const fallbackLaneName = desiredLaneName || activeLaneRef.current;
       setState(function (prev) { return Object.assign({}, prev, { loading: true, error: "" }); });
-      api("/config").then(function (payload) {
-        setState(function (prev) { return Object.assign({}, prev, { loading: false, payload: payload }); });
+      Promise.all([
+        api("/config"),
+        SDK.fetchJSON("/api/skills").catch(function () { return []; })
+      ]).then(function (rows) {
+        if (requestSeq !== configRequestSeqRef.current) return;
+        var payload = rows[0];
+        var skills = Array.isArray(rows[1]) ? rows[1].slice().sort(function (a, b) { return String(a.name || "").localeCompare(String(b.name || "")); }) : [];
+        setState(function (prev) { return Object.assign({}, prev, { loading: false, payload: payload, availableSkills: skills }); });
         if (laneEpoch !== laneEpochRef.current) return;
         syncForm(payload, fallbackLaneName || activeLaneRef.current);
       }).catch(function (err) {
+        if (requestSeq !== configRequestSeqRef.current) return;
         setState(function (prev) { return Object.assign({}, prev, { loading: false, error: parseApiErrorMessage(err) }); });
       });
     }, [syncForm]);
@@ -251,6 +309,7 @@
         name: String(form.name || "").trim(),
         enabled: !!form.enabled,
         prompt: String(form.promptText || "").trim(),
+        skills: Array.isArray(form.skills) ? form.skills.slice() : [],
         include_current_time: !!form.includeCurrentTime,
         include_current_source: !!form.includeCurrentSource,
         include_session_gap: !!form.includeSessionGap,
@@ -282,20 +341,23 @@
     }
     function persistConfig(payload, successMessage, nextState, syncLaneName) {
       const laneEpoch = laneEpochRef.current;
+      const requestSeq = ++configRequestSeqRef.current;
       const targetLaneName = syncLaneName || activeLaneRef.current;
-      setState(function (prev) { return Object.assign({}, prev, { saving: true, error: "", banner: "" }, nextState || {}); });
+      setState(function (prev) { return Object.assign({}, prev, { saving: true, loading: false, error: "", banner: "" }, nextState || {}); });
       api("/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then(function (nextPayload) {
+        if (requestSeq !== configRequestSeqRef.current) return;
         var wakeInfo = nextPayload && nextPayload.watcher ? (" · watcher wake " + String(nextPayload.watcher.woken_watchers || 0)) : "";
         var laneMoved = laneEpoch !== laneEpochRef.current;
         setState(function (prev) {
-          var baseState = { saving: false, banner: successMessage + wakeInfo, payload: nextPayload };
+          var baseState = { saving: false, loading: false, banner: successMessage + wakeInfo, payload: nextPayload };
           if (laneMoved) return Object.assign({}, prev, baseState);
           return Object.assign({}, prev, Object.assign({}, baseState, nextState || {}));
         });
         if (laneMoved) return;
         syncForm(nextPayload, targetLaneName || activeLaneRef.current);
       }).catch(function (err) {
-        setState(function (prev) { return Object.assign({}, prev, { saving: false, error: parseApiErrorMessage(err) }); });
+        if (requestSeq !== configRequestSeqRef.current) return;
+        setState(function (prev) { return Object.assign({}, prev, { saving: false, loading: false, error: parseApiErrorMessage(err) }); });
       });
     }
     function save() {
@@ -304,7 +366,7 @@
       var nextLaneName;
       try {
         payload = buildConfigPayloadFromSelectedLane();
-        selected = payload.lanes.find(function (lane) { return String(lane.name) === String(state.selectedLaneName); });
+        selected = payload.lanes.find(function (lane) { return String(lane.name) === String((state.form && state.form.name) || state.selectedLaneName); });
         nextLaneName = selected ? selected.name : ((payload.lanes[0] && payload.lanes[0].name) || state.selectedLaneName);
       } catch (err) {
         setState(function (prev) { return Object.assign({}, prev, { error: "save parse error: " + err.message, banner: "" }); });
@@ -363,6 +425,7 @@
     var lane = currentLane();
 
     function renderList() {
+      var summary = topSummary(payload, lanes);
       return h("div", { className: "lin-panel" },
         h(Card, { className: "lin-panel__hero" },
           h(CardHeader, null,
@@ -375,7 +438,8 @@
             )
           ),
           h(CardContent, { className: "lin-panel__heroContent" },
-            h("p", { className: "lin-panel__lead" }, "一覧から memory 設定を選んで、詳細へ入る形だよ。heartbeat と同じく、まず全体を見てから個別設定へ降りる。"),
+            h("p", { className: "lin-panel__lead" }, "Memory injection の設定を管理する画面です。一覧から設定を選び、対象セッション・チャンネル、差し込むファイル、現在時刻やスキルなどの注入オプションを編集できます。"),
+            h(TopSummary, { summary: summary }),
             payload.config_file ? h("p", { className: "lin-panel__path" }, "config: " + payload.config_file) : null,
             state.error ? h("p", { className: "lin-panel__error" }, state.error) : null,
             state.banner ? h("p", { className: "lin-panel__banner" }, state.banner) : null
@@ -415,6 +479,7 @@
                     h("span", null, "exclude · " + excludeLabel),
                     h("span", null, "profiles · " + profileLabel),
                     h("span", null, "prompt · " + promptPreview),
+                    h("span", null, "skills · " + ((item.skills || []).join(", ") || "(none)")),
                     h("span", null, "current time · " + (item.include_current_time ? "inject" : "skip")),
                     h("span", null, "current channel · " + (item.include_current_source ? "inject" : "skip")),
                     h("span", null, "session gap · " + (item.include_session_gap ? "inject" : "skip")),
@@ -446,8 +511,10 @@
       var summaryCurrentSource = form.includeCurrentSource ? "inject" : "skip";
       var summarySessionGap = form.includeSessionGap ? "inject" : "skip";
       var summaryPromptText = String(form.promptText || "").trim() || "(none)";
+      var summarySkills = Array.isArray(form.skills) && form.skills.length ? form.skills.join(", ") : "(none)";
       var runtimeInfo = laneRuntime(form.name) || {};
       var previewInfo = lanePreview(form.name) || {};
+      var summary = topSummary(payload, lanes);
       return h("div", { className: "lin-panel" },
         h(Card, { className: "lin-panel__hero" },
           h(CardHeader, null,
@@ -463,7 +530,8 @@
             )
           ),
           h(CardContent, { className: "lin-panel__heroContent" },
-            h("p", { className: "lin-panel__lead" }, "一覧から選んだ memory 設定をここで触るよ。heartbeat の sibling 設定面として、全体→個別の流れをそのまま寄せてある。"),
+            h("p", { className: "lin-panel__lead" }, "選択した memory 設定の詳細です。対象範囲、snapshot files、注入オプション、事前ロードする skills を編集できます。"),
+            h(TopSummary, { summary: summary }),
             h("p", { className: "lin-panel__path" }, "name: " + (form.name || "")),
             state.error ? h("p", { className: "lin-panel__error" }, state.error) : null,
             state.banner ? h("p", { className: "lin-panel__banner" }, state.banner) : null
@@ -476,6 +544,11 @@
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.enabled, disabled: !!state.saving, onCheckedChange: function (v) { toggleSelectedLaneEnabled(!!v); } }), h(Label, null, form.enabled ? "enabled" : "disabled")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "name"), h(Input, { className: "lin-panel__input", value: form.name || "", onChange: function (e) { setFormValue("name", e.target.value); }, placeholder: "setting name" }), h("p", { className: "lin-panel__hint" }, "この設定は、今開いている dashboard profile（" + activeProfile(state.payload) + "）だけに保存されるよ。")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "prompt"), h(Textarea, { className: "lin-panel__textarea", value: form.promptText || "", onChange: function (e) { setFormValue("promptText", e.target.value); }, placeholder: "Optional guidance for this setting" }), h("p", { className: "lin-panel__hint" }, "snapshot file とは別に、この lane 専用の補助 prompt を memory injection へ積めるよ。")),
+              h("div", { className: "lin-panel__field" },
+                h(Label, null, "Skills (optional)"),
+                h(NameCheckboxPicker, { id: "memory-skills", available: state.availableSkills || [], selected: form.skills || [], onChange: function (skills) { setFormValue("skills", skills); }, emptyLabel: "No skills installed for this profile." }),
+                h("p", { className: "lin-panel__hint" }, "Selected skills are loaded before this memory lane is injected — the lane sets when, the skill sets how.")
+              ),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentTime, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentTime", !!v); } }), h(Label, null, "inject current time")),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentSource, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentSource", !!v); } }), h(Label, null, "inject current channel")),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeSessionGap, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeSessionGap", !!v); } }), h(Label, null, "inject session gap")),
@@ -504,6 +577,7 @@
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last reason"), h("dd", null, String(runtimeInfo.last_decision_reason || "(none)"))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "matched sessions"), h("dd", null, String(runtimeInfo.matched_session_count || 0))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "prompt"), h("dd", null, summaryPromptText)),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "skills"), h("dd", null, summarySkills)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current time"), h("dd", null, summaryCurrentTime)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current channel"), h("dd", null, summaryCurrentSource)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "session gap"), h("dd", null, summarySessionGap)),

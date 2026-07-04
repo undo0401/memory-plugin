@@ -50,6 +50,7 @@ DEFAULT_LANE = {
     "exclude_sessions": [],
     "exclude_channels": [],
     "exclude_profiles": [],
+    "skills": [],
     "include_current_time": False,
     "include_current_source": False,
     "include_session_gap": False,
@@ -315,6 +316,7 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
         normalized["exclude_channels"] = []
     normalized["target_profiles"] = target_profiles
     normalized["exclude_profiles"] = exclude_profiles
+    normalized["skills"] = _normalize_lines(list(source.get("skills") or []))
     normalized["snapshot_files"] = _normalize_lines(list(source.get("snapshot_files") or []))
     return normalized
 
@@ -648,7 +650,26 @@ def _session_gap_entry(previous_activity_at: Any = None) -> dict[str, Any]:
     }
 
 
-def _render_injection_text(matched_lanes: list[dict[str, Any]], loaded_files: list[dict[str, Any]]) -> str:
+def _load_skills_prompt(skill_names: list[str], *, task_id: str | None = None) -> tuple[str, list[str], list[str]]:
+    normalized_names = _normalize_lines(skill_names)
+    if not normalized_names:
+        return "", [], []
+    try:
+        from agent.skill_commands import build_preloaded_skills_prompt
+
+        return build_preloaded_skills_prompt(normalized_names, task_id=task_id)
+    except Exception:
+        logger.warning("memory plugin: failed to load configured skills", exc_info=True)
+        return "", [], normalized_names
+
+
+def _render_injection_text(
+    matched_lanes: list[dict[str, Any]],
+    loaded_files: list[dict[str, Any]],
+    *,
+    session_id: str | None = None,
+    include_skills: bool = True,
+) -> str:
     if not matched_lanes:
         return ""
     lane_names = ", ".join(str(lane.get("name") or "unknown") for lane in matched_lanes)
@@ -662,6 +683,17 @@ def _render_injection_text(matched_lanes: list[dict[str, Any]], loaded_files: li
             continue
         lane_name = str(lane.get("name") or "unknown")
         sections.append(f"[Memory behavior prompt: {lane_name}]\n{prompt_text}")
+    if include_skills:
+        for lane in matched_lanes:
+            skill_names = _normalize_lines(list(lane.get("skills") or []))
+            if not skill_names:
+                continue
+            lane_name = str(lane.get("name") or "unknown")
+            skills_prompt, loaded_skills, missing_skills = _load_skills_prompt(skill_names, task_id=session_id)
+            if loaded_skills:
+                sections.append(f"[Memory lane skills: {lane_name} · {', '.join(loaded_skills)}]\n{skills_prompt}")
+            if missing_skills:
+                sections.append(f"[Memory lane missing skills: {lane_name}]\n{', '.join(missing_skills)}")
     for item in loaded_files:
         content = str(item.get("content") or "")
         if not content.strip():
@@ -707,7 +739,7 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
     session_gap_files = [_session_gap_entry()] if include_session_gap else []
     loaded_entries = current_time_files + current_source_files + session_gap_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
-    text = _render_injection_text([normalized_lane], loaded_entries)
+    text = _render_injection_text([normalized_lane], loaded_entries, include_skills=False)
     return {
         "lane_name": str(normalized_lane.get("name") or ""),
         "text": text,
@@ -851,7 +883,7 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         session_gap_files = [_session_gap_entry(previous_activity_at)]
     loaded_entries = current_time_files + current_source_files + session_gap_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
-    text = _render_injection_text(matched_lanes, loaded_entries)
+    text = _render_injection_text(matched_lanes, loaded_entries, session_id=None)
     session_aliases = sorted(_session_selector_aliases(effective_session_key, source))
     channel_aliases = sorted(_channel_selector_aliases(source))
     active_profile = _active_profile_name()
@@ -867,6 +899,14 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
             }
             for lane in matched_lanes
             if str(lane.get("prompt") or "").strip()
+        ],
+        "lane_skills": [
+            {
+                "name": str(lane.get("name") or ""),
+                "skills": list(lane.get("skills") or []),
+            }
+            for lane in matched_lanes
+            if list(lane.get("skills") or [])
         ],
         "lanes": matched_lanes,
         "selector_aliases": {
@@ -923,6 +963,7 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
         "active_profile": result.get("active_profile"),
         "lane_names": list(result.get("lane_names") or []),
         "lane_prompts": list(result.get("lane_prompts") or []),
+        "lane_skills": list(result.get("lane_skills") or []),
         "include_current_time": bool(result.get("include_current_time")),
         "include_current_source": bool(result.get("include_current_source")),
         "include_session_gap": bool(result.get("include_session_gap")),
@@ -936,6 +977,19 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
     }
     save_state(state)
     return state
+
+
+def _memory_observability_summary(config: dict[str, Any], state: dict[str, Any], lane_runtime: dict[str, Any] | None = None) -> dict[str, int]:
+    lanes = [lane for lane in list(config.get("lanes") or []) if isinstance(lane, dict)]
+    runtime = state.get("session_runtime")
+    session_count = len([key for key, value in runtime.items() if isinstance(key, str) and isinstance(value, dict)]) if isinstance(runtime, dict) else 0
+    tracked_lanes = set(str(name) for name in (lane_runtime or {}).keys() if str(name))
+    return {
+        "enabled_lanes": sum(1 for lane in lanes if bool(lane.get("enabled", True))),
+        "tracked": len(tracked_lanes),
+        "sessions": session_count,
+        "disabled": sum(1 for lane in lanes if not bool(lane.get("enabled", True))),
+    }
 
 
 def _memory_lane_runtime_summary(state: dict[str, Any]) -> dict[str, Any]:
@@ -1031,6 +1085,7 @@ async def get_config() -> dict[str, Any]:
         for lane in list(config.get("lanes") or [])
         if isinstance(lane, dict)
     }
+    lane_runtime = _memory_lane_runtime_summary(state)
     return {
         "plugin": PLUGIN_NAME,
         "kind": PLUGIN_KIND,
@@ -1040,8 +1095,9 @@ async def get_config() -> dict[str, Any]:
         "available_profiles": _available_profiles(),
         "config": config,
         "runtime": state,
-        "lane_runtime": _memory_lane_runtime_summary(state),
+        "lane_runtime": lane_runtime,
         "lane_previews": lane_previews,
+        "summary": _memory_observability_summary(config, state, lane_runtime),
     }
 
 

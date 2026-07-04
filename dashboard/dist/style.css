@@ -38,6 +38,12 @@
   gap: 0.55rem;
 }
 
+.lin-panel__hero,
+.lin-panel__card,
+.lin-panel__laneCard {
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
 .lin-panel__titleMeta {
   display: flex;
   align-items: center;

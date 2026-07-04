@@ -3,7 +3,7 @@
   "description": "memory dashboard v3 config — pre-call injection only; legacy interval prompt lanes removed",
   "lanes": [
     {
-      "name": "mein-memory",
+      "name": "main",
       "enabled": true,
       "prompt": "",
       "idle_seconds": 0,
@@ -17,13 +17,14 @@
       "exclude_sessions": [],
       "exclude_channels": [],
       "exclude_profiles": [],
+      "skills": [],
       "include_current_time": true,
       "include_current_source": true,
       "include_session_gap": true,
       "snapshot_files": []
     },
     {
-      "name": "zatudan",
+      "name": "casual",
       "enabled": true,
       "prompt": "",
       "idle_seconds": 0,
@@ -39,12 +40,39 @@
       "exclude_sessions": [],
       "exclude_channels": [],
       "exclude_profiles": [],
+      "skills": [],
       "include_current_time": false,
       "include_current_source": false,
       "include_session_gap": false,
       "snapshot_files": [
         "/opt/data/state/STATUS.md"
       ]
+    },
+    {
+      "name": "vpoice-chat",
+      "enabled": true,
+      "prompt": "",
+      "idle_seconds": 0,
+      "max_session_age_seconds": 86400,
+      "reinject_interval_minutes": 0,
+      "target_sessions": [],
+      "target_channels": [
+        "#管理ボイチャ",
+        "#雑談ボイチャ"
+      ],
+      "target_profiles": [
+        "default"
+      ],
+      "exclude_sessions": [],
+      "exclude_channels": [],
+      "exclude_profiles": [],
+      "skills": [
+        "voice-chat"
+      ],
+      "include_current_time": false,
+      "include_current_source": false,
+      "include_session_gap": false,
+      "snapshot_files": []
     }
   ]
 }
