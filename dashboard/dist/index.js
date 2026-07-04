@@ -427,16 +427,11 @@
     function renderList() {
       var summary = topSummary(payload, lanes);
       return h("div", { className: "lin-panel" },
+        h("div", { className: "lin-panel__topActions" },
+          h(Pill, { tone: "good" }, String(lanes.length) + " memory setting" + (lanes.length === 1 ? "" : "s")),
+          h(Button, { type: "button", onClick: createLane }, state.saving ? "Saving..." : "New setting")
+        ),
         h(Card, { className: "lin-panel__hero" },
-          h(CardHeader, null,
-            h("div", { className: "lin-panel__titleRow" },
-              h(CardTitle, null, "memory"),
-              h("div", { className: "lin-panel__titleMeta" },
-                h(Pill, { tone: "good" }, String(lanes.length) + " memory setting" + (lanes.length === 1 ? "" : "s")),
-                h(Button, { type: "button", onClick: createLane }, state.saving ? "Saving..." : "New setting")
-              )
-            )
-          ),
           h(CardContent, { className: "lin-panel__heroContent" },
             h("p", { className: "lin-panel__lead" }, "Memory injection の設定を管理する画面です。一覧から設定を選び、対象セッション・チャンネル、差し込むファイル、現在時刻やスキルなどの注入オプションを編集できます。"),
             h(TopSummary, { summary: summary }),

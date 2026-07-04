@@ -32,6 +32,14 @@
   gap: 0.75rem;
 }
 
+.lin-panel__topActions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .lin-panel__titleStack {
   display: flex;
   flex-direction: column;
