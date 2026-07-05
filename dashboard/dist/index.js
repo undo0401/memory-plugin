@@ -421,14 +421,8 @@
         h("div", { className: "lin-panel__list" },
           lanes.map(function (item) {
             var files = Array.isArray(item.snapshot_files) ? item.snapshot_files : [];
-            var targetValues = ((item.target_sessions || []).filter(function (value) { return value !== "*"; }));
-            var excludeValues = (item.exclude_sessions || []);
-            var targetLabel = "session · " + (targetValues.join(", ") || "(all)");
-            var excludeLabel = "session · " + (excludeValues.join(", ") || "(none)");
-            var profileLabel = (item.target_profiles || []).join(", ") || "default";
-            var promptPreview = truncate(String(item.prompt || ""), 120) || "(none)";
             var runtimeInfo = laneRuntime(item.name) || {};
-            var previewInfo = lanePreview(item.name) || {};
+            var lastRunLabel = formatMinutesAgo(runtimeInfo.last_applied_minutes_ago, runtimeInfo.last_applied_at);
             return h(Card, { key: item.name, className: "lin-panel__laneCard" },
               h(CardContent, { className: "lin-panel__laneBody" },
                 h("div", { className: "lin-panel__laneMain" },
@@ -445,17 +439,11 @@
                     )
                   ),
                   h("div", { className: "lin-panel__laneMeta" },
-                    h("span", null, "last applied · " + formatMinutesAgo(runtimeInfo.last_applied_minutes_ago, runtimeInfo.last_applied_at)),
-                    h("span", null, "last applied at · " + formatTimestamp(runtimeInfo.last_applied_at)),
-                    h("span", null, "target · " + targetLabel),
-                    h("span", null, "exclude · " + excludeLabel),
-                    h("span", null, "profiles · " + profileLabel),
-                    h("span", null, "prompt · " + promptPreview),
+                    h("span", { className: "lin-panel__laneMetaPrimary" }, "last run · " + lastRunLabel),
                     h("span", null, "skills · " + ((item.skills || []).join(", ") || "(none)")),
                     h("span", null, "current time · " + (item.include_current_time ? "inject" : "skip")),
                     h("span", null, "current source · " + (item.include_current_source ? "inject" : "skip")),
                     h("span", null, "session gap · " + (item.include_session_gap ? "inject" : "skip")),
-                    h("span", null, "preview · " + (truncate(String(previewInfo.excerpt || ""), 160) || "(none)")),
                     h("span", null, "files · " + (files.length ? truncate(files.join(", "), 160) : "(none)"))
                   )
                 ),
@@ -485,7 +473,6 @@
       var summaryPromptText = String(form.promptText || "").trim() || "(none)";
       var summarySkills = Array.isArray(form.skills) && form.skills.length ? form.skills.join(", ") : "(none)";
       var runtimeInfo = laneRuntime(form.name) || {};
-      var previewInfo = lanePreview(form.name) || {};
       var summary = topSummary(payload, lanes);
       return h("div", { className: "lin-panel" },
         h(Card, { className: "lin-panel__hero" },
@@ -537,11 +524,10 @@
             )
           ),
           h(Card, { className: "lin-panel__card" },
-            h(CardHeader, null, h(CardTitle, null, "Summary / preview")),
+            h(CardHeader, null, h(CardTitle, null, "Summary")),
             h(CardContent, { className: "lin-panel__content" },
               h("div", { className: "lin-panel__summary" },
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last applied"), h("dd", null, formatMinutesAgo(runtimeInfo.last_applied_minutes_ago, runtimeInfo.last_applied_at))),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last applied at"), h("dd", null, formatTimestamp(runtimeInfo.last_applied_at))),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last run"), h("dd", null, formatMinutesAgo(runtimeInfo.last_applied_minutes_ago, runtimeInfo.last_applied_at))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last reason"), h("dd", null, String(runtimeInfo.last_decision_reason || "(none)"))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "matched sessions"), h("dd", null, String(runtimeInfo.matched_session_count || 0))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "prompt"), h("dd", null, summaryPromptText)),
@@ -552,13 +538,9 @@
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "target"), h("dd", null, summaryTargetKind + " · " + summaryTargetText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude"), h("dd", null, summaryTargetKind + " · " + summaryExcludeText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "dashboard profile"), h("dd", null, summaryTargetProfiles)),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "files"), h("dd", null, splitLines(form.snapshotFilesText).join(", ") || "(none)"))
-              ),
-              h("div", { className: "lin-panel__summary" },
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "preview"), h("dd", null, previewInfo.has_preview ? "ready" : "(none)")),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "files"), h("dd", null, splitLines(form.snapshotFilesText).join(", ") || "(none)")),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "source session"), h("dd", null, String(runtimeInfo.last_session_key || "(none)")))
-              ),
-              h("pre", { className: "lin-panel__textarea", style: { whiteSpace: "pre-wrap" } }, String(previewInfo.text || "(preview empty)"))
+              )
             )
           )
         )
