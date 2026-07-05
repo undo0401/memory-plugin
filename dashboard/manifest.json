@@ -2,7 +2,7 @@
   "name": "memory",
   "label": "memory",
   "description": "LIN memory 設定を一覧→詳細で扱うダッシュボード",
-  "icon": "Database",
+  "icon": "Sparkles",
   "version": "0.2.0",
   "tab": {
     "path": "/memory",
