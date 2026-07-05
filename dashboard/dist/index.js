@@ -170,6 +170,19 @@
     if (excludeSessions.length) return "exclude";
     return "all";
   }
+  function scopeSummaryParts(lane) {
+    var targets = Array.isArray(lane && lane.target_sessions)
+      ? lane.target_sessions.map(function (item) { return String(item || "").trim(); }).filter(function (item) { return item && item !== "*"; })
+      : [];
+    var excludes = Array.isArray(lane && lane.exclude_sessions)
+      ? lane.exclude_sessions.map(function (item) { return String(item || "").trim(); }).filter(Boolean)
+      : [];
+    var parts = [];
+    if (targets.length) parts.push("対象 · " + truncate(targets.join(", "), 96));
+    else parts.push("全対象");
+    if (excludes.length) parts.push("除外 · " + truncate(excludes.join(", "), 96));
+    return parts;
+  }
 
   function Page() {
     const [state, setState] = useState({
@@ -441,6 +454,7 @@
                     )
                   ),
                   h("div", { className: "lin-panel__laneMeta" },
+                    scopeSummaryParts(item).map(function (part) { return h("span", { key: "scope-" + part }, part); }),
                     h("span", null, "skills · " + ((item.skills || []).join(", ") || "(none)")),
                     h("span", null, "current time · " + (item.include_current_time ? "inject" : "skip")),
                     h("span", null, "current source · " + (item.include_current_source ? "inject" : "skip")),
