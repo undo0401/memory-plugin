@@ -146,11 +146,6 @@
   opacity: 0.9;
 }
 
-.lin-panel__laneMetaPrimary {
-  color: rgb(37, 99, 235);
-  font-weight: 600;
-}
-
 .lin-panel__fieldGroup {
   display: grid;
   gap: 0.9rem;

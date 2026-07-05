@@ -105,20 +105,22 @@
     return text;
   }
   function formatMinutesAgo(value, timestamp) {
-    var n = Number(value);
-    if (!Number.isFinite(n) && timestamp) {
+    var seconds = NaN;
+    if (timestamp) {
       var parsed = Date.parse(String(timestamp));
-      if (Number.isFinite(parsed)) n = Math.max(0, Math.floor((Date.now() - parsed) / 60000));
+      if (Number.isFinite(parsed)) seconds = Math.max(0, Math.floor((Date.now() - parsed) / 1000));
     }
-    if (!Number.isFinite(n)) return "(never)";
-    if (n <= 0) return "just now";
-    if (n < 60) return String(n) + "m ago";
-    var hours = Math.floor(n / 60);
-    var minutes = n % 60;
-    if (hours < 24) return String(hours) + "h" + (minutes ? " " + minutes + "m" : "") + " ago";
-    var days = Math.floor(hours / 24);
-    var remHours = hours % 24;
-    return String(days) + "d" + (remHours ? " " + remHours + "h" : "") + " ago";
+    if (!Number.isFinite(seconds)) {
+      var n = Number(value);
+      if (Number.isFinite(n)) seconds = Math.max(0, Math.floor(n * 60));
+    }
+    if (!Number.isFinite(seconds)) return "(never)";
+    if (seconds < 60) return String(Math.max(0, seconds)) + "s ago";
+    var minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return String(minutes) + "m ago";
+    var hours = Math.floor(minutes / 60);
+    if (hours < 24) return String(hours) + "h ago";
+    return String(Math.floor(hours / 24)) + "d ago";
   }
   function activeProfile(payload) {
     try {
@@ -431,7 +433,7 @@
                       h("div", { className: "lin-panel__laneTitle" }, String(item.name || "memory"))
                     ),
                     h("div", { className: "lin-panel__titleMeta" },
-                      h(Pill, { tone: files.length ? "good" : "muted" }, String(files.length) + " files"),
+                      h(Pill, { tone: "good" }, lastRunLabel),
                       h("label", { className: "lin-panel__fieldRowCheckbox" },
                         h(Checkbox, { checked: !!item.enabled, disabled: !!state.saving, onCheckedChange: function (v) { toggleLaneEnabled(item.name, !!v); } }),
                         h("span", null, item.enabled ? "enabled" : "disabled")
@@ -439,7 +441,6 @@
                     )
                   ),
                   h("div", { className: "lin-panel__laneMeta" },
-                    h("span", { className: "lin-panel__laneMetaPrimary" }, "last run · " + lastRunLabel),
                     h("span", null, "skills · " + ((item.skills || []).join(", ") || "(none)")),
                     h("span", null, "current time · " + (item.include_current_time ? "inject" : "skip")),
                     h("span", null, "current source · " + (item.include_current_source ? "inject" : "skip")),
