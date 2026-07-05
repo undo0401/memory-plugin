@@ -45,10 +45,8 @@ DEFAULT_LANE = {
     "max_session_age_seconds": 86400,
     "reinject_interval_minutes": 0,
     "target_sessions": [],
-    "target_channels": [],
     "target_profiles": ["default"],
     "exclude_sessions": [],
-    "exclude_channels": [],
     "exclude_profiles": [],
     "skills": [],
     "include_current_time": False,
@@ -298,24 +296,10 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
         source.get("max_session_age_seconds"),
         DEFAULT_LANE.get("max_session_age_seconds", 86400),
     )
-    target_sessions = _normalize_lines(list(source.get("target_sessions") or []))
-    target_channels = _normalize_lines(list(source.get("target_channels") or []))
-    target_profiles = _normalize_lines(list(source.get("target_profiles") or [])) or ["default"]
-    exclude_sessions = _normalize_lines(list(source.get("exclude_sessions") or []))
-    exclude_channels = _normalize_lines(list(source.get("exclude_channels") or []))
-    exclude_profiles = _normalize_lines(list(source.get("exclude_profiles") or []))
-    if target_channels or exclude_channels:
-        normalized["target_sessions"] = []
-        normalized["target_channels"] = target_channels
-        normalized["exclude_sessions"] = []
-        normalized["exclude_channels"] = exclude_channels
-    else:
-        normalized["target_sessions"] = target_sessions
-        normalized["target_channels"] = []
-        normalized["exclude_sessions"] = exclude_sessions
-        normalized["exclude_channels"] = []
-    normalized["target_profiles"] = target_profiles
-    normalized["exclude_profiles"] = exclude_profiles
+    normalized["target_sessions"] = _normalize_lines(list(source.get("target_sessions") or []))
+    normalized["target_profiles"] = _normalize_lines(list(source.get("target_profiles") or [])) or ["default"]
+    normalized["exclude_sessions"] = _normalize_lines(list(source.get("exclude_sessions") or []))
+    normalized["exclude_profiles"] = _normalize_lines(list(source.get("exclude_profiles") or []))
     normalized["skills"] = _normalize_lines(list(source.get("skills") or []))
     normalized["snapshot_files"] = _normalize_lines(list(source.get("snapshot_files") or []))
     return normalized
@@ -379,16 +363,10 @@ def _wake_runtime_watchers(reason: str = "dashboard-config-save") -> int:
 
 
 def _definition_target_patterns(lane: dict[str, Any]) -> list[str]:
-    target_channels = list(lane.get("target_channels") or [])
-    if target_channels:
-        return target_channels
     return list(lane.get("target_sessions") or [])
 
 
 def _definition_exclude_patterns(lane: dict[str, Any]) -> list[str]:
-    exclude_channels = list(lane.get("exclude_channels") or [])
-    if exclude_channels:
-        return exclude_channels
     return list(lane.get("exclude_sessions") or [])
 
 
@@ -432,72 +410,9 @@ def _session_selector_aliases(session_key: str, source: Any) -> set[str]:
     return aliases
 
 
-def _channel_name_aliases(chat_name: str) -> set[str]:
-    aliases = set()
-    normalized = _safe_text(chat_name)
-    if not normalized:
-        return aliases
-    aliases.add(normalized)
-    for part in normalized.split(" / "):
-        part_text = _safe_text(part)
-        if not part_text:
-            continue
-        aliases.add(part_text)
-        if "#" in part_text:
-            aliases.add(part_text[part_text.index("#"):])
-    return aliases
-
-
-def _channel_selector_aliases(source: Any) -> set[str]:
-    aliases = set()
-    platform = _platform_text(source)
-    chat_id = _safe_text(_source_get(source, "chat_id", ""))
-    thread_id = _safe_text(_source_get(source, "thread_id", ""))
-    parent_chat_id = _safe_text(_source_get(source, "parent_chat_id", ""))
-    chat_name = _safe_text(_source_get(source, "chat_name", ""))
-    if chat_id:
-        aliases.add(chat_id)
-    if thread_id:
-        aliases.add(thread_id)
-    if parent_chat_id:
-        aliases.add(parent_chat_id)
-    if platform and chat_id:
-        aliases.add(f"{platform}:{chat_id}")
-    if platform and thread_id:
-        aliases.add(f"{platform}:{thread_id}")
-    if platform and parent_chat_id:
-        aliases.add(f"{platform}:{parent_chat_id}")
-    if platform and chat_id and thread_id:
-        aliases.add(f"{platform}:{chat_id}:{thread_id}")
-    for name_alias in _channel_name_aliases(chat_name):
-        aliases.add(name_alias)
-        if platform:
-            aliases.add(f"{platform}:{name_alias}")
-    return aliases
-
-
-def _patterns_match(aliases: set[str], patterns: list[str]) -> bool:
-    normalized_patterns = _normalize_lines(patterns)
-    if not normalized_patterns:
-        return True
-    if any(pattern in {"*", "all", "origin"} for pattern in normalized_patterns):
-        return True
-    for pattern in normalized_patterns:
-        for alias in aliases:
-            if fnmatch.fnmatchcase(alias, pattern):
-                return True
-    return False
-
-
-def _lane_selector_kind(lane: dict[str, Any]) -> str:
-    if lane.get("target_channels") or lane.get("exclude_channels"):
-        return "channel"
-    return "session"
-
 
 def _select_matching_lanes(config: dict[str, Any], session_key: str, source: Any) -> list[dict[str, Any]]:
     session_aliases = _session_selector_aliases(session_key, source)
-    channel_aliases = _channel_selector_aliases(source)
     matched = []
     for lane in list(config.get("lanes") or []):
         if not isinstance(lane, dict):
@@ -507,13 +422,11 @@ def _select_matching_lanes(config: dict[str, Any], session_key: str, source: Any
             continue
         if not _lane_matches_active_profile(normalized_lane):
             continue
-        selector_kind = _lane_selector_kind(normalized_lane)
-        aliases = channel_aliases if selector_kind == "channel" else session_aliases
         target_patterns = _definition_target_patterns(normalized_lane)
         exclude_patterns = _definition_exclude_patterns(normalized_lane)
-        if not _patterns_match(aliases, target_patterns):
+        if not _patterns_match(session_aliases, target_patterns):
             continue
-        if exclude_patterns and _patterns_match(aliases, exclude_patterns):
+        if exclude_patterns and _patterns_match(session_aliases, exclude_patterns):
             continue
         matched.append(normalized_lane)
     return matched
@@ -560,13 +473,14 @@ def _current_time_entry() -> dict[str, Any]:
         [
             f"current_time: {now.isoformat(timespec='seconds')}",
             "timezone: Asia/Tokyo",
+            "note: current_time is the current local time for this incoming message",
         ]
     )
     return {
         "path": "__current_time__",
         "content": content,
         "kind": "current_time",
-        "label": "now",
+        "label": "incoming message local time",
         "date": now.date().isoformat(),
     }
 
@@ -699,7 +613,9 @@ def _render_injection_text(
         if not content.strip():
             continue
         if item.get("kind") == "current_time":
-            sections.append(f"[Current time: {item.get('label') or 'now'} · {item.get('date') or ''}]\n{content}")
+            sections.append(
+                f"[Current local time for this incoming message: {item.get('date') or ''}]\n{content}"
+            )
         elif item.get("kind") == "current_source":
             sections.append(f"[Current source: {item.get('label') or 'runtime source'}]\n{content}")
         elif item.get("kind") == "session_gap":
@@ -885,7 +801,6 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text(matched_lanes, loaded_entries, session_id=None)
     session_aliases = sorted(_session_selector_aliases(effective_session_key, source))
-    channel_aliases = sorted(_channel_selector_aliases(source))
     active_profile = _active_profile_name()
     return {
         "matched": bool(text),
@@ -911,7 +826,6 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         "lanes": matched_lanes,
         "selector_aliases": {
             "session": session_aliases,
-            "channel": channel_aliases,
         },
         "include_current_time": include_current_time,
         "include_current_source": include_current_source,

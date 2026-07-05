@@ -60,11 +60,9 @@
       "include_current_source": true,
       "include_session_gap": true,
       "reinject_interval_minutes": 0,
-      "target_sessions": [],
-      "target_channels": ["discord:#雑談"],
+      "target_sessions": ["agent:main:discord:group:1514000804028092618:1342027443027836941"],
       "target_profiles": ["default"],
       "exclude_sessions": [],
-      "exclude_channels": [],
       "exclude_profiles": [],
       "snapshot_files": ["/opt/data/state/STATUS.md"]
     }
@@ -75,11 +73,10 @@
 ### behavior
 
 - lane selector の正本は `plugin_api.py`
-- `target_channels` が入っている lane は channel 基準で評価する
-- 空なら `target_sessions` を使う
-- dashboard では `target type` と `scope`（全て / 対象 / 除外）を選び、その下の入力欄1つで selector を編集する。`scope=全て` または入力欄が空なら target/exclude は空配列になり、実質全て対象として扱う
+- selector は session-only。`target_sessions` / `exclude_sessions` だけで評価し、channel selector は互換なしで廃止する
+- dashboard では `scope`（全て / 対象 / 除外）を選び、その下の入力欄1つで session selector を編集する。`scope=全て` または入力欄が空なら target/exclude は空配列になり、実質全て対象として扱う
 - `target_profiles` / `exclude_profiles` で、現在の Hermes profile 名（例: `default`, `coder`）を絞り込む。`target_profiles` が空なら `default` に正規化する
-- dashboard では `target profile` をドロップダウンで選び、保存時は `target_profiles: ["<profile>"]` として保持する
+- dashboard は今開いている profile を使い、保存時は `target_profiles: ["<profile>"]` として保持する
 - gateway 側では再実装せず、helper を呼んで prepend するだけに保つ
 - lane ごとに `include_current_time=true` を付けると、pre-call 注入に `current_time` / `timezone` を追加する
 - lane ごとに `include_current_source=true` を付けると、pre-call 注入に現在の `platform` / `channel` を追加する

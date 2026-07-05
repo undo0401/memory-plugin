@@ -154,31 +154,18 @@
       idle_seconds: 0,
       reinject_interval_minutes: 0,
       target_sessions: [],
-      target_channels: [],
       target_profiles: ["default"],
       exclude_sessions: [],
-      exclude_channels: [],
       exclude_profiles: [],
       skills: [],
       snapshot_files: []
     };
   }
-  function defaultTargetKind(lane) {
-    const sessions = Array.isArray(lane && lane.target_sessions) ? lane.target_sessions.filter(function (item) { return item !== "*"; }) : [];
-    const channels = Array.isArray(lane && lane.target_channels) ? lane.target_channels.filter(function (item) { return item !== "*"; }) : [];
-    const excludeSessions = Array.isArray(lane && lane.exclude_sessions) ? lane.exclude_sessions : [];
-    const excludeChannels = Array.isArray(lane && lane.exclude_channels) ? lane.exclude_channels : [];
-    if (channels.length || excludeChannels.length) return "channel";
-    if (sessions.length || excludeSessions.length) return "session";
-    return "session";
-  }
   function defaultScopeMode(lane) {
     const sessions = Array.isArray(lane && lane.target_sessions) ? lane.target_sessions.filter(function (item) { return item !== "*"; }) : [];
-    const channels = Array.isArray(lane && lane.target_channels) ? lane.target_channels.filter(function (item) { return item !== "*"; }) : [];
     const excludeSessions = Array.isArray(lane && lane.exclude_sessions) ? lane.exclude_sessions : [];
-    const excludeChannels = Array.isArray(lane && lane.exclude_channels) ? lane.exclude_channels : [];
-    if (sessions.length || channels.length) return "target";
-    if (excludeSessions.length || excludeChannels.length) return "exclude";
+    if (sessions.length) return "target";
+    if (excludeSessions.length) return "exclude";
     return "all";
   }
 
@@ -220,13 +207,10 @@
             includeCurrentTime: !!lane.include_current_time,
             includeCurrentSource: !!lane.include_current_source,
             includeSessionGap: !!lane.include_session_gap,
-            targetKind: defaultTargetKind(lane),
             scopeMode: defaultScopeMode(lane),
             targetSessionsText: ((lane.target_sessions || []).filter(function (item) { return item !== "*"; })).join("\n"),
-            targetChannelsText: ((lane.target_channels || []).filter(function (item) { return item !== "*"; })).join("\n"),
             targetProfile: activeProfile(payload),
             excludeSessionsText: ((lane.exclude_sessions || [])).join("\n"),
-            excludeChannelsText: ((lane.exclude_channels || [])).join("\n"),
             snapshotFilesText: ((lane.snapshot_files || [])).join("\n")
           }
         });
@@ -260,10 +244,8 @@
       setState(function (prev) { return Object.assign({}, prev, { form: Object.assign({}, prev.form || {}, { [key]: value }) }); });
     }
     function currentScopeTextKey() {
-      var kind = String((state.form && state.form.targetKind) || "session") === "channel" ? "channel" : "session";
       var mode = String((state.form && state.form.scopeMode) || "all");
-      if (mode === "exclude") return kind === "channel" ? "excludeChannelsText" : "excludeSessionsText";
-      return kind === "channel" ? "targetChannelsText" : "targetSessionsText";
+      return mode === "exclude" ? "excludeSessionsText" : "targetSessionsText";
     }
     function currentScopeLabel() {
       var mode = String((state.form && state.form.scopeMode) || "all");
@@ -273,9 +255,8 @@
     }
     function currentScopePlaceholder() {
       var mode = String((state.form && state.form.scopeMode) || "all");
-      var kind = String((state.form && state.form.targetKind) || "session") === "channel" ? "channel" : "session";
-      if (mode === "all") return "scope is all; no input needed";
-      return kind === "channel" ? "one channel selector per line" : "one session selector per line";
+      if (mode === "all") return "scope is all sessions; no input needed";
+      return "one session selector per line";
     }
     function currentConfig() {
       return (state.payload && state.payload.config) || { schema_version: 1, description: "memory dashboard v3 config", lanes: [] };
@@ -300,7 +281,6 @@
     }
     function buildLanePayload() {
       const form = state.form || {};
-      const targetKind = String(form.targetKind || "session") === "channel" ? "channel" : "session";
       const scopeMode = String(form.scopeMode || "all");
       const scopeValues = scopeMode === "all" ? [] : splitLines(form[currentScopeTextKey()]);
       const useTarget = scopeMode === "target" && scopeValues.length > 0;
@@ -315,11 +295,9 @@
         include_session_gap: !!form.includeSessionGap,
         idle_seconds: 0,
         reinject_interval_minutes: 0,
-        target_sessions: useTarget && targetKind === "session" ? scopeValues : [],
-        target_channels: useTarget && targetKind === "channel" ? scopeValues : [],
+        target_sessions: useTarget ? scopeValues : [],
         target_profiles: [activeProfile(state.payload)],
-        exclude_sessions: useExclude && targetKind === "session" ? scopeValues : [],
-        exclude_channels: useExclude && targetKind === "channel" ? scopeValues : [],
+        exclude_sessions: useExclude ? scopeValues : [],
         exclude_profiles: [],
         snapshot_files: splitLines(form.snapshotFilesText)
       };
@@ -433,7 +411,7 @@
         ),
         h(Card, { className: "lin-panel__hero" },
           h(CardContent, { className: "lin-panel__heroContent" },
-            h("p", { className: "lin-panel__lead" }, "Memory injection の設定を管理する画面です。一覧から設定を選び、対象セッション・チャンネル、差し込むファイル、現在時刻やスキルなどの注入オプションを編集できます。"),
+            h("p", { className: "lin-panel__lead" }, "Memory injection の設定を管理する画面です。一覧から設定を選び、対象セッション、差し込むファイル、現在時刻やスキルなどの注入オプションを編集できます。"),
             h(TopSummary, { summary: summary }),
             payload.config_file ? h("p", { className: "lin-panel__path" }, "config: " + payload.config_file) : null,
             state.error ? h("p", { className: "lin-panel__error" }, state.error) : null,
@@ -443,11 +421,10 @@
         h("div", { className: "lin-panel__list" },
           lanes.map(function (item) {
             var files = Array.isArray(item.snapshot_files) ? item.snapshot_files : [];
-            var targetKind = ((Array.isArray(item.target_channels) && item.target_channels.filter(function (value) { return value !== "*"; }).length) || (Array.isArray(item.exclude_channels) && item.exclude_channels.length)) ? "channel" : "session";
-            var targetValues = targetKind === "channel" ? ((item.target_channels || []).filter(function (value) { return value !== "*"; })) : ((item.target_sessions || []).filter(function (value) { return value !== "*"; }));
-            var excludeValues = targetKind === "channel" ? (item.exclude_channels || []) : (item.exclude_sessions || []);
-            var targetLabel = targetKind + " · " + (targetValues.join(", ") || "(all)");
-            var excludeLabel = targetKind + " · " + (excludeValues.join(", ") || "(none)");
+            var targetValues = ((item.target_sessions || []).filter(function (value) { return value !== "*"; }));
+            var excludeValues = (item.exclude_sessions || []);
+            var targetLabel = "session · " + (targetValues.join(", ") || "(all)");
+            var excludeLabel = "session · " + (excludeValues.join(", ") || "(none)");
             var profileLabel = (item.target_profiles || []).join(", ") || "default";
             var promptPreview = truncate(String(item.prompt || ""), 120) || "(none)";
             var runtimeInfo = laneRuntime(item.name) || {};
@@ -476,7 +453,7 @@
                     h("span", null, "prompt · " + promptPreview),
                     h("span", null, "skills · " + ((item.skills || []).join(", ") || "(none)")),
                     h("span", null, "current time · " + (item.include_current_time ? "inject" : "skip")),
-                    h("span", null, "current channel · " + (item.include_current_source ? "inject" : "skip")),
+                    h("span", null, "current source · " + (item.include_current_source ? "inject" : "skip")),
                     h("span", null, "session gap · " + (item.include_session_gap ? "inject" : "skip")),
                     h("span", null, "preview · " + (truncate(String(previewInfo.excerpt || ""), 160) || "(none)")),
                     h("span", null, "files · " + (files.length ? truncate(files.join(", "), 160) : "(none)"))
@@ -493,11 +470,11 @@
     }
 
     function renderDetail() {
-      var summaryTargetKind = String(form.targetKind || "session") === "channel" ? "channel" : "session";
+      var summaryTargetKind = "session";
       var summaryScopeMode = String(form.scopeMode || "all");
       var summaryScopeValues = summaryScopeMode === "target"
-        ? (summaryTargetKind === "channel" ? splitLines(form.targetChannelsText) : splitLines(form.targetSessionsText))
-        : (summaryScopeMode === "exclude" ? (summaryTargetKind === "channel" ? splitLines(form.excludeChannelsText) : splitLines(form.excludeSessionsText)) : []);
+        ? splitLines(form.targetSessionsText)
+        : (summaryScopeMode === "exclude" ? splitLines(form.excludeSessionsText) : []);
       if (!summaryScopeValues.length) summaryScopeMode = "all";
       var summaryTargetText = summaryScopeMode === "target" ? summaryScopeValues.join(", ") : "(all)";
       var summaryExcludeText = summaryScopeMode === "exclude" ? summaryScopeValues.join(", ") : "(none)";
@@ -545,12 +522,8 @@
                 h("p", { className: "lin-panel__hint" }, "Selected skills are loaded before this memory lane is injected — the lane sets when, the skill sets how.")
               ),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentTime, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentTime", !!v); } }), h(Label, null, "inject current time")),
-              h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentSource, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentSource", !!v); } }), h(Label, null, "inject current channel")),
+              h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentSource, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentSource", !!v); } }), h(Label, null, "inject current source")),
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeSessionGap, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeSessionGap", !!v); } }), h(Label, null, "inject session gap")),
-              h("div", { className: "lin-panel__field" }, h(Label, null, "target type"), h(SelectField, { value: form.targetKind || "session", onChange: function (v) { setFormValue("targetKind", v); }, options: [
-                { value: "session", label: "Session" },
-                { value: "channel", label: "Channel" }
-              ] })),
               h("div", { className: "lin-panel__field" }, h(Label, null, "scope"), h(SelectField, { value: form.scopeMode || "all", onChange: function (v) { setFormValue("scopeMode", v || "all"); }, options: [
                 { value: "all", label: "全て" },
                 { value: "target", label: "対象" },
@@ -574,7 +547,7 @@
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "prompt"), h("dd", null, summaryPromptText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "skills"), h("dd", null, summarySkills)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current time"), h("dd", null, summaryCurrentTime)),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current channel"), h("dd", null, summaryCurrentSource)),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current source"), h("dd", null, summaryCurrentSource)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "session gap"), h("dd", null, summarySessionGap)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "target"), h("dd", null, summaryTargetKind + " · " + summaryTargetText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude"), h("dd", null, summaryTargetKind + " · " + summaryExcludeText)),

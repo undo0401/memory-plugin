@@ -10,12 +10,10 @@
       "max_session_age_seconds": 86400,
       "reinject_interval_minutes": 0,
       "target_sessions": [],
-      "target_channels": [],
       "target_profiles": [
         "default"
       ],
       "exclude_sessions": [],
-      "exclude_channels": [],
       "exclude_profiles": [],
       "skills": [],
       "include_current_time": true,
@@ -30,15 +28,13 @@
       "idle_seconds": 0,
       "max_session_age_seconds": 86400,
       "reinject_interval_minutes": 0,
-      "target_sessions": [],
-      "target_channels": [
-        "#雑談"
+      "target_sessions": [
+        "agent:main:discord:group:1514000804028092618:1342027443027836941"
       ],
       "target_profiles": [
         "default"
       ],
       "exclude_sessions": [],
-      "exclude_channels": [],
       "exclude_profiles": [],
       "skills": [],
       "include_current_time": false,
@@ -55,16 +51,13 @@
       "idle_seconds": 0,
       "max_session_age_seconds": 86400,
       "reinject_interval_minutes": 0,
-      "target_sessions": [],
-      "target_channels": [
-        "#管理ボイチャ",
-        "#雑談ボイチャ"
+      "target_sessions": [
+        "agent:main:discord:group:1517167409449009211:1342027443027836941"
       ],
       "target_profiles": [
         "default"
       ],
       "exclude_sessions": [],
-      "exclude_channels": [],
       "exclude_profiles": [],
       "skills": [
         "voice-chat"
