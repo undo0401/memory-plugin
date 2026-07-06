@@ -2,3 +2,16 @@ __pycache__/
 *.py[cod]
 state/
 .pytest_cache/
+
+
+logs/
+
+.env
+.env.*
+*.token
+*.key
+*.pem
+
+config/*
+!config/*.example.*
+!config/README.md
