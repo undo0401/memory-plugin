@@ -85,3 +85,34 @@ def resolve(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
         },
         "runtime": state,
     }
+
+
+
+def health() -> dict[str, Any]:
+    """Return plugin-owned memory health for System Desk."""
+    config = api.load_config()
+    state = api.load_state()
+    lane_runtime = api._memory_lane_runtime_summary(state)
+    summary_counts = api._memory_observability_summary(config, state, lane_runtime)
+    enabled = int(summary_counts.get("enabled_lanes") or 0)
+    disabled = int(summary_counts.get("disabled_lanes") or 0)
+    tracked = int(summary_counts.get("tracked_lanes") or 0)
+    sessions = int(summary_counts.get("sessions") or 0)
+    last_tick_at = state.get("last_tick_at")
+    status = "ok" if last_tick_at else "unknown"
+    summary = f"enabled {enabled} / disabled {disabled} / tracked {tracked} / sessions {sessions}"
+    if not last_tick_at:
+        summary += " / last tick missing"
+    return {
+        "plugin": api.PLUGIN_NAME,
+        "status": status,
+        "summary": summary,
+        "generated_at": api.now_iso(),
+        "details": {
+            "config_file": str(api.config_path()),
+            "state_file": str(api.state_path()),
+            "summary": summary_counts,
+            "lane_runtime": lane_runtime,
+            "last_tick_at": last_tick_at,
+        },
+    }

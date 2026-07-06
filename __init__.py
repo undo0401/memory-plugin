@@ -26,6 +26,8 @@ def _control_handler(args: dict[str, Any], **_: Any) -> str:
             result = control.put_config((args or {}).get("config"))
         elif action == "resolve":
             result = control.resolve((args or {}).get("payload"))
+        elif action == "health":
+            result = control.health()
         else:
             result = {"error": f"unknown memory_control action: {action}"}
     except Exception as exc:
@@ -63,5 +65,18 @@ def register(ctx) -> None:
         },
         handler=_control_handler,
         description="Memory plugin control surface.",
-        emoji="🧠",
+        emoji="🫧",
+    )
+
+    ctx.register_tool(
+        name="memory_health",
+        toolset="memory",
+        schema={
+            "name": "memory_health",
+            "description": "Return Memory plugin-owned health status for System Desk.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+        handler=lambda args, **kwargs: _control_handler({"action": "health"}, **kwargs),
+        description="Memory health surface.",
+        emoji="🫧",
     )
