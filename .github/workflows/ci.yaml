@@ -44,4 +44,3 @@ jobs:
         run: |
           test -f plugin.yaml
           test -f dashboard/manifest.json
-          test -f skills/daily-memory/SKILL.md

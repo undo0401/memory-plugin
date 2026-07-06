@@ -18,7 +18,7 @@
 }
 
 .lin-panel__list {
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .lin-panel__grid {
@@ -109,6 +109,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  min-width: 0;
 }
 
 .lin-panel__laneActions {
@@ -126,6 +127,9 @@
 .lin-panel__laneTitle {
   font-size: 1rem;
   font-weight: 700;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .lin-panel__laneId,
@@ -144,6 +148,17 @@
   gap: 0.4rem 0.9rem;
   font-size: 0.9rem;
   opacity: 0.9;
+  min-width: 0;
+}
+
+.lin-panel__laneMeta > span,
+.lin-panel__path,
+.lin-panel__pill {
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .lin-panel__fieldGroup {

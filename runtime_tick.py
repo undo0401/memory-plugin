@@ -141,7 +141,6 @@ def _candidate_source_rows(api: Any, lane: dict[str, Any]) -> tuple[list[str], l
             continue
         ordered_paths.append(path_text)
         seen.add(path_text)
-    api._maybe_refresh_managed_snapshots(ordered_paths)
     file_rows = [api._read_snapshot_text(path_text) for path_text in ordered_paths]
     loaded_rows = [item for item in file_rows if item.get("content")]
     return ordered_paths, file_rows, loaded_rows

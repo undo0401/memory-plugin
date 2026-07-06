@@ -18,7 +18,7 @@
 - session-open injection の selector / file loading / text assembly
   - `memory` plugin backend (`/opt/data/plugins/memory/dashboard/plugin_api.py`)
 - snapshot 生成
-  - `/opt/data/scripts/memory/build-memory-context.py`
+  - memory plugin の責務外。producer 側の diary / event-context pipeline が担う
 - first-turn への prepend
   - `/opt/hermes/gateway/run.py`
 
@@ -33,5 +33,5 @@
 ## 残した知見
 
 - 「session-open 向けに yesterday / today をまとめて見たい」という意図自体は有効
-- ただし現行では plugin が daily memory 生ファイルを直読せず、snapshot builder が用意した markdown を lane ごとに読む
+- ただし現行では plugin が daily memory 生ファイルを直読せず、producer が用意した markdown snapshot を lane ごとに読む
 - sidecar 化の再検討が必要になっても、この note は **歴史メモ** として扱い、現行仕様の正本にはしない

@@ -4,8 +4,7 @@ import fnmatch
 import importlib
 import json
 import logging
-import subprocess
-import tomllib
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -31,12 +30,7 @@ STATE_DIRNAME = "state"
 CONFIG_FILENAME = "memory.json"
 STATE_FILENAME = "memory-runtime.json"
 PLUGIN_KIND = "memory"
-BUILD_MEMORY_CONTEXT_SCRIPT = Path("/opt/data/scripts/diaries/build-memory-context.py")
 JST = ZoneInfo("Asia/Tokyo")
-MANAGED_SNAPSHOT_PATHS = {
-    "/opt/data/state/MEMORY_EVENT_CONTEXT.md",
-    "/opt/data/state/MEMORY_EMOTIONS_CONTEXT.md",
-}
 DEFAULT_LANE = {
     "name": "memory-1",
     "enabled": True,
@@ -119,6 +113,22 @@ def _normalize_lines(values: list[str]) -> list[str]:
         if text:
             normalized.append(text)
     return normalized
+
+
+_DISCORD_CHANNEL_MENTION_RE = re.compile(r"^(?:(?P<platform>[A-Za-z][\w-]*):)?<#(?P<id>\d+)>$")
+
+
+def _selector_pattern_aliases(pattern: str) -> set[str]:
+    text = _safe_text(pattern)
+    if not text:
+        return set()
+    aliases = {text}
+    match = _DISCORD_CHANNEL_MENTION_RE.match(text)
+    if match:
+        channel_id = match.group("id")
+        platform = (match.group("platform") or "discord").lower()
+        aliases.update({channel_id, f"<#{channel_id}>", f"{platform}:<#{channel_id}>"})
+    return aliases
 
 
 def _active_profile_name() -> str:
@@ -411,6 +421,31 @@ def _session_selector_aliases(session_key: str, source: Any) -> set[str]:
 
 
 
+def _patterns_match(aliases: set[str], patterns: list[str]) -> bool:
+    normalized_patterns = _normalize_lines(patterns)
+    if not normalized_patterns:
+        return True
+    normalized_aliases = {_safe_text(alias) for alias in aliases if _safe_text(alias)}
+    if not normalized_aliases:
+        return False
+    lower_aliases = {alias.lower() for alias in normalized_aliases}
+    for pattern in normalized_patterns:
+        pattern_text = _safe_text(pattern)
+        pattern_lower = pattern_text.lower()
+        if pattern_lower in {"*", "all", "any"}:
+            return True
+        for pattern_alias in _selector_pattern_aliases(pattern_text):
+            pattern_alias_lower = pattern_alias.lower()
+            for alias in normalized_aliases:
+                if fnmatch.fnmatchcase(alias, pattern_alias):
+                    return True
+            for alias_lower in lower_aliases:
+                if fnmatch.fnmatchcase(alias_lower, pattern_alias_lower):
+                    return True
+    return False
+
+
+
 def _select_matching_lanes(config: dict[str, Any], session_key: str, source: Any) -> list[dict[str, Any]]:
     session_aliases = _session_selector_aliases(session_key, source)
     matched = []
@@ -445,26 +480,6 @@ def _read_snapshot_text(raw_path: str) -> dict[str, Any]:
     except Exception as exc:  # pragma: no cover - defensive logging path
         result["error"] = str(exc)
     return result
-
-
-def _maybe_refresh_managed_snapshots(paths: list[str]) -> None:
-    normalized_paths = {_safe_text(path) for path in paths if _safe_text(path)}
-    if not normalized_paths.intersection(MANAGED_SNAPSHOT_PATHS):
-        return
-    if not BUILD_MEMORY_CONTEXT_SCRIPT.exists():
-        logger.warning("memory plugin: build script missing: %s", BUILD_MEMORY_CONTEXT_SCRIPT)
-        return
-    try:
-        subprocess.run(
-            ["python3", str(BUILD_MEMORY_CONTEXT_SCRIPT)],
-            cwd="/opt/data",
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-        )
-    except Exception:
-        logger.warning("memory plugin: failed to refresh managed snapshots before resolve", exc_info=True)
 
 
 def _current_time_entry() -> dict[str, Any]:
@@ -644,7 +659,6 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
             continue
         ordered_paths.append(path_text)
         seen_paths.add(path_text)
-    _maybe_refresh_managed_snapshots(ordered_paths)
     file_results = [_read_snapshot_text(path_text) for path_text in ordered_paths]
     loaded_files = [item for item in file_results if item.get("content")]
     include_current_time = _normalize_bool(normalized_lane.get("include_current_time"), False)
@@ -777,7 +791,6 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
                 continue
             ordered_paths.append(path_text)
             seen_paths.add(path_text)
-    _maybe_refresh_managed_snapshots(ordered_paths)
     file_results = [_read_snapshot_text(path_text) for path_text in ordered_paths]
     loaded_files = [item for item in file_results if item.get("content")]
     include_current_time = any(
@@ -988,82 +1001,33 @@ def _memory_lane_runtime_summary(state: dict[str, Any]) -> dict[str, Any]:
     return summaries
 
 
+
+def _dispatch_registry_tool(args: dict[str, Any]) -> dict[str, Any]:
+    """Route dashboard operations through the plugin tool registry surface."""
+    from tools.registry import registry
+
+    raw = registry.dispatch("memory_control", args)
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail="memory_control returned invalid JSON") from exc
+    if isinstance(decoded, dict) and decoded.get("error"):
+        raise HTTPException(status_code=500, detail=str(decoded.get("error")))
+    if not isinstance(decoded, dict):
+        raise HTTPException(status_code=500, detail="memory_control returned non-object JSON")
+    return decoded
+
+
 @router.get("/config")
 async def get_config() -> dict[str, Any]:
-    config = load_config()
-    state = load_state()
-    state["last_loaded_at"] = now_iso()
-    save_state(state)
-    lane_previews = {
-        str(lane.get("name") or ""): _load_lane_preview(lane)
-        for lane in list(config.get("lanes") or [])
-        if isinstance(lane, dict)
-    }
-    lane_runtime = _memory_lane_runtime_summary(state)
-    return {
-        "plugin": PLUGIN_NAME,
-        "kind": PLUGIN_KIND,
-        "config_file": str(config_path()),
-        "state_file": str(state_path()),
-        "active_profile": _active_profile_name(),
-        "available_profiles": _available_profiles(),
-        "config": config,
-        "runtime": state,
-        "lane_runtime": lane_runtime,
-        "lane_previews": lane_previews,
-        "summary": _memory_observability_summary(config, state, lane_runtime),
-    }
+    return _dispatch_registry_tool({"action": "get_config"})
 
 
 @router.put("/config")
 async def put_config(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
-    normalized = _normalize_config(payload)
-    _write_json(config_path(), normalized)
-    state = load_state()
-    state["last_saved_at"] = now_iso()
-    save_state(state)
-    woken_watchers = _wake_runtime_watchers(reason="dashboard-config-save")
-    response = await get_config()
-    response["watcher"] = {
-        "reason": "dashboard-config-save",
-        "woken_watchers": woken_watchers,
-    }
-    return response
+    return _dispatch_registry_tool({"action": "put_config", "config": payload})
 
 
 @router.post("/resolve")
 async def resolve_configured_memory(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
-    request = _coerce_json_dict(payload, context="resolve payload")
-    source = request.get("source") or {}
-    if not isinstance(source, dict):
-        raise HTTPException(status_code=400, detail="source must be an object")
-    session_key = _safe_text(request.get("session_key") or "")
-    config = load_config()
-    policy = resolve_memory_injection_policy(
-        config,
-        session_key,
-        source,
-        is_new_session=bool(request.get("is_new_session", False)),
-        session_id=_safe_text(request.get("session_id") or ""),
-    )
-    result = dict(policy.get("result") or {})
-    mark_injected = bool(request.get("mark_injected", False)) and bool(policy.get("should_inject"))
-    state = update_memory_resolution_state(policy, injected=mark_injected)
-    return {
-        "plugin": PLUGIN_NAME,
-        "kind": PLUGIN_KIND,
-        "config": config,
-        "result": result,
-        "decision": {
-            "should_inject": bool(policy.get("should_inject")),
-            "decision_reason": policy.get("decision_reason"),
-            "reinject_interval_minutes": int(policy.get("reinject_interval_minutes") or 0),
-            "matched_reinject_intervals": list(policy.get("matched_reinject_intervals") or []),
-            "last_injected_at": policy.get("last_injected_at"),
-            "elapsed_minutes": policy.get("elapsed_minutes"),
-            "is_new_session": bool(policy.get("is_new_session")),
-            "session_key": policy.get("session_key"),
-            "session_id": policy.get("session_id"),
-        },
-        "runtime": state,
-    }
+    return _dispatch_registry_tool({"action": "resolve", "payload": payload})

@@ -1,6 +1,10 @@
 # memory plugin
 
-`memory` plugin は、この workspace では **pre-call injection / memory snapshots の入口**をまとめて持つ場所だよ。
+`memory` plugin は、この workspace では **pre-call injection / context snapshot consumer** を持つ場所だよ。
+
+diaries / daily notes / emotion context の生成は別責務。memory はそれらの
+producer script を直接実行せず、lane config の `snapshot_files` に列挙された
+既存 snapshot を読むだけに保つ。
 
 ## canonical relation
 
@@ -24,25 +28,21 @@
    - lane 判定して `snapshot_files` を読む
    - 注入用 text を組み立てる
 
-2. **memory snapshots contract**
-   - `/opt/data/scripts/diaries/build-memory-context.py` が生成する
-     - `/opt/data/state/MEMORY_EVENT_CONTEXT.md`
-     - `/opt/data/state/MEMORY_EMOTIONS_CONTEXT.md`
-   - plugin はこれらを読む側なので、snapshot の shape と期待順序もここで追う
+2. **snapshot consumer contract**
+   - producer が用意した markdown snapshot を `snapshot_files` から読む
+   - memory plugin は producer の path や実行方法を正本にしない
+   - snapshot の shape と読み取り順序だけをここで追う
 
 ## canonical files
 
 - backend: `/opt/data/plugins/memory/dashboard/plugin_api.py`
 - config: `/opt/data/plugins/memory/config/memory.json`
 - runtime state: `/opt/data/plugins/memory/state/memory-runtime.json`
-- snapshot builder: `/opt/data/scripts/diaries/build-memory-context.py`
-- emotion config: `/opt/data/config/MEMORY_EMOTIONS_CONFIG.toml`
-- emotion buffer: `/opt/data/state/MEMORY_EMOTION_BUFFER.json`
+- managed snapshots:
+  - `/opt/data/state/MEMORY_EVENT_CONTEXT.md`
+  - `/opt/data/state/MEMORY_EMOTIONS_CONTEXT.md`
 - retired sidecar note: `references/retired-lin-ops-project.md`
-- surfaced bare skills:
-  - `/opt/data/plugins/memory/skills/daily-memory/SKILL.md`
-- discovery lane: `skills.external_dirs` に `/opt/data/plugins/memory/skills` を追加して bare `daily-memory` として拾わせる
-- plugin register 側では `memory:daily-memory` も出し、**bare を canonical / namespaced を explicit load 用**として併用する
+- diaries / daily-memory の書き方・生成・検索は memory plugin の責務外
 
 ## session-aware injection
 
@@ -84,11 +84,11 @@
 - `reinject_interval_minutes` / `idle_seconds` は legacy config 互換用に残すが、dashboard からは編集しない
 - LLM への memory context は、gateway の `_run_agent_inner` 直前で pre-call 注入する
 
-## memory snapshots contract
+## snapshot consumer contract
 
 ### event context
 
-`MEMORY_EVENT_CONTEXT.md` は、daily memory の `出来事` を書くための短い出来事断面を持つ。
+`MEMORY_EVENT_CONTEXT.md` は、event producer が用意する短い出来事断面。
 
 - `days.today` / `days.yesterday` で分ける
 - 各日付の中は session 単位
@@ -101,7 +101,7 @@
 
 ### emotions context
 
-`MEMORY_EMOTIONS_CONTEXT.md` は、daily memory の `LINの振り返り` や emotion context の候補を読むための主出力。
+`MEMORY_EMOTIONS_CONTEXT.md` は、emotion producer が用意する感情・余韻の断面。
 
 期待する shape:
 - 感情タグ付き message
@@ -124,41 +124,12 @@
 3. scope が広すぎて別チャット断面が混ざっていないか
 4. `preferred_level` に合う message だけ拾ったあと、session へ戻す段で弱い断面が先頭化していないか
 
-## emotion extraction scope
+## producer boundary
 
-emotion 抽出の実行本体は `build-memory-context.py` で、条件の正本は `/opt/data/config/MEMORY_EMOTIONS_CONFIG.toml` に置く。
-
-現在の emotion context は `/opt/data/state/MEMORY_EMOTION_BUFFER.json` を唯一の材料バッファとして使う。hourly 実行だけが `--refresh-emotion-buffer` 付きで **新規会話を追記**し、on-demand 実行は **保存済み buffer だけ**を読んで `MEMORY_EMOTIONS_CONTEXT.md` を再生成する。buffer は JST 0:00 をまたいだらリセットされ、その当日ぶんだけで emotion context を組み立てる。
-
-既定の読み方:
-- 既定 scope は **Discord 全チャット横断**
-- 基礎条件は `sessions.source='discord'`
-- channel 専用ではない
-- 絞る時は `[session_filters]` の `title_allow_regex` / `title_deny_regex` を使う
-
-既定の感情方針:
-- 対象 role はまず assistant 優先
-- 分類は既定で単一 `emotion` 軸
-- `emotion_tags.level` は `low` / `medium` / `high`
-- `MEMORY_EMOTIONS_CONTEXT.md` の本文でも keyword と重みが見える形を保つ
-
-## tuning / verification
-調整後は少なくとも次を確認する。
-
-```bash
-python3 /opt/data/scripts/diaries/build-memory-context.py --stdout summary
-python3 /opt/data/scripts/diaries/build-memory-context.py --refresh-emotion-buffer
-python3 /opt/data/scripts/diaries/build-memory-context.py
-```
-
-いまの current spec では、`memory` plugin の resolve 経路が managed memory snapshots (`MEMORY_EVENT_CONTEXT.md` / `MEMORY_EMOTIONS_CONTEXT.md`) を読む前に `build-memory-context.py` を on-demand 実行する。だから gateway 再起動を待たなくても、LLM call 直前の pre-call injection で最新 snapshot が使われる。
-
-見る場所:
-- `top_keywords=`
-- `preferred_level`
-- `preferred_sessions`
-- 生成された `MEMORY_EMOTIONS_CONTEXT.md` の先頭候補
-- plugin runtime state の `last_resolution`
+- memory plugin は snapshot producer を直接起動しない
+- snapshot freshness は producer 側の cron/tooling が担う
+- memory 側の確認対象は、`snapshot_files` の path が存在して読めることと、pre-call injection に含まれること
+- snapshot の生成条件・抽出 scope・day boundary・検索 helper は diaries / event-context 側で管理する
 
 ## retired lin-ops note
 
@@ -168,21 +139,16 @@ python3 /opt/data/scripts/diaries/build-memory-context.py
 - compose / worker 前提の deployment note
 - daily memory 生ファイル直読みの session-open text builder
 
-このへんの歴史メモだけ `references/retired-lin-ops-project.md` に残して、runtime の責務は plugin / script / gateway hook に統合する。
+このへんの歴史メモだけ `references/retired-lin-ops-project.md` に残す。
 
 ## out of scope
 
 次は plugin の正本には置かない。
 
-- daily memory 本文の文体ルール
+- diaries / daily notes 本文の文体ルール
 - `LINの振り返り` の書き方そのもの
-- daily memory を会話でどう自然に扱うか
+- diary helper scripts の入口や実行方法
+- daily notes を会話でどう自然に扱うか
 - LIN の関係性や人格面の運用ルール
 
-それらは plugin 同梱の skill `memory` 側で持つ。
-
-helper script の入口:
-- `references/helper-scripts.md`
-- `python3 /opt/data/scripts/diaries/search-memory.py <query>`
-- `python3 /opt/data/scripts/diaries/list-memory-range.py`
-- `python3 /opt/data/scripts/diaries/read-recent-memory.py`
+それらは diaries / daily-memory 側の skill・tooling で持つ。

@@ -179,6 +179,7 @@
       : [];
     var parts = [];
     if (targets.length) parts.push("対象 · " + truncate(targets.join(", "), 96));
+    else if (excludes.length) parts.push("除外指定のみ");
     else parts.push("全対象");
     if (excludes.length) parts.push("除外 · " + truncate(excludes.join(", "), 96));
     return parts;
