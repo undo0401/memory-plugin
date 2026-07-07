@@ -66,7 +66,9 @@ DEFAULT_STATE = {
     "session_runtime": {},
 }
 SNAPSHOT_PATH_ROOT = Path("/opt/data")
-_DATE_TOKEN_RE = re.compile(r"\{(?P<name>TODAY|YESTERDAY|YESTADAY)(?P<offset>[+-]\d+)?\}", re.IGNORECASE)
+_DATE_TOKEN_RE = re.compile(
+    r"\{(?P<name>TODAY|TOMORROW|YESTERDAY|YESTADAY)(?P<offset>[+-]\d+)?\}", re.IGNORECASE
+)
 
 
 def now_iso() -> str:
@@ -96,6 +98,8 @@ def _expand_snapshot_path_tokens(raw_path: str, *, now: datetime | None = None) 
         name = match.group("name").upper()
         offset_text = match.group("offset") or ""
         offset = int(offset_text) if offset_text else 0
+        if name == "TOMORROW":
+            offset += 1
         if name in {"YESTERDAY", "YESTADAY"}:
             offset -= 1
         return (base_date + timedelta(days=offset)).isoformat()

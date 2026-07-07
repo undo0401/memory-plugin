@@ -577,7 +577,7 @@
                 { value: "exclude", label: "除外" }
               ] })),
               h("div", { className: "lin-panel__field" }, h(Label, null, currentScopeLabel()), h(Textarea, { className: "lin-panel__textarea", disabled: String(form.scopeMode || "all") === "all", value: String(form.scopeMode || "all") === "all" ? "" : (form[currentScopeTextKey()] || ""), onChange: function (e) { setFormValue(currentScopeTextKey(), e.target.value); }, placeholder: currentScopePlaceholder() })),
-              h("div", { className: "lin-panel__field" }, h(Label, null, "snapshot files"), h(Textarea, { className: "lin-panel__textarea", value: form.snapshotFilesText || "", onChange: function (e) { setFormValue("snapshotFilesText", e.target.value); }, placeholder: "state/STATUS.md\nworkspace/memory/{TODAY}.md" }), h("p", { className: "lin-panel__hint" }, "Relative paths resolve under /opt/data. Date tokens: {TODAY}, {TODAY-1}, {YESTERDAY}, {YESTADAY}." )),
+              h("div", { className: "lin-panel__field" }, h(Label, null, "snapshot files"), h(Textarea, { className: "lin-panel__textarea", value: form.snapshotFilesText || "", onChange: function (e) { setFormValue("snapshotFilesText", e.target.value); }, placeholder: "state/STATUS.md\nworkspace/memory/{TODAY}.md" }), h("p", { className: "lin-panel__hint" }, "Relative paths resolve under /opt/data. Date tokens: {TODAY}, {TOMORROW}, {TODAY-1}, {YESTERDAY}, {YESTADAY}." )),
               h("div", { className: "lin-panel__buttonRow" },
                 h(Button, { type: "button", onClick: save }, state.saving ? "Saving..." : "Save"),
                 h(Button, { type: "button", onClick: deleteCurrentLane }, state.saving ? "Working..." : "Delete")
