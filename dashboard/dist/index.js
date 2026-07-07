@@ -414,30 +414,6 @@
       }, selectedLaneName);
     }
 
-    function bulkPolicyValue(key) {
-      var list = visibleLanes();
-      if (!list.length) return false;
-      return list.every(function (item) { return !!item[key]; });
-    }
-    function bulkPolicyMixed(key) {
-      var list = visibleLanes();
-      if (!list.length) return false;
-      var enabledCount = list.filter(function (item) { return !!item[key]; }).length;
-      return enabledCount > 0 && enabledCount < list.length;
-    }
-    function setBulkInjectionPolicy(key, enabled) {
-      var payload = clone(currentConfig());
-      var visibleNames = new Set(visibleLanes().map(function (lane) { return String(lane.name); }));
-      var lanes = Array.isArray(payload.lanes) ? payload.lanes.slice() : [];
-      payload.lanes = lanes.map(function (lane) {
-        if (!visibleNames.has(String(lane.name))) return lane;
-        var next = Object.assign({}, lane);
-        next[key] = !!enabled;
-        return next;
-      });
-      persistConfig(payload, enabled ? "Injection policy enabled" : "Injection policy disabled", { view: "list" });
-    }
-
     var payload = state.payload || {};
     var form = state.form || {};
     var lanes = visibleLanes();
@@ -452,27 +428,11 @@
         ),
         h(Card, { className: "lin-panel__hero" },
           h(CardContent, { className: "lin-panel__heroContent" },
-            h("p", { className: "lin-panel__lead" }, "Memory injection の設定を管理する画面です。一覧でシステムプロンプトへ入れる共通方針を決め、個別設定では対象セッション、差し込むファイル、skills を編集できます。"),
+            h("p", { className: "lin-panel__lead" }, "Memory injection の設定を管理する画面です。一覧で全体を見て、個別設定では対象セッション、current time / current source、差し込むファイル、skills を編集できます。"),
             h(TopSummary, { summary: summary }),
             payload.config_file ? h("p", { className: "lin-panel__path" }, "config: " + payload.config_file) : null,
             state.error ? h("p", { className: "lin-panel__error" }, state.error) : null,
             state.banner ? h("p", { className: "lin-panel__banner" }, state.banner) : null
-          )
-        ),
-        h(Card, { className: "lin-panel__card lin-panel__policyCard" },
-          h(CardHeader, null, h(CardTitle, null, "System prompt injection policy")),
-          h(CardContent, { className: "lin-panel__policyGrid" },
-            h("label", { className: "lin-panel__fieldRowCheckbox" },
-              h(Checkbox, { checked: bulkPolicyValue("include_current_time"), disabled: !!state.saving || !lanes.length, onCheckedChange: function (v) { setBulkInjectionPolicy("include_current_time", !!v); } }),
-              h("span", null, "current time"),
-              bulkPolicyMixed("include_current_time") ? h(Pill, { tone: "muted" }, "mixed") : null
-            ),
-            h("label", { className: "lin-panel__fieldRowCheckbox" },
-              h(Checkbox, { checked: bulkPolicyValue("include_current_source"), disabled: !!state.saving || !lanes.length, onCheckedChange: function (v) { setBulkInjectionPolicy("include_current_source", !!v); } }),
-              h("span", null, "current source"),
-              bulkPolicyMixed("include_current_source") ? h(Pill, { tone: "muted" }, "mixed") : null
-            ),
-            h("p", { className: "lin-panel__hint lin-panel__policyHint" }, "この2つは現在の profile に見えている memory 設定へ一括で適用されます。個別 lane の詳細画面では編集しません。")
           )
         ),
         h("div", { className: "lin-panel__list" },
@@ -544,7 +504,7 @@
             )
           ),
           h(CardContent, { className: "lin-panel__heroContent" },
-            h("p", { className: "lin-panel__lead" }, "選択した memory 設定の詳細です。対象範囲、snapshot files、事前ロードする skills を編集できます。システムプロンプト注入方針は一覧画面で一括変更します。"),
+            h("p", { className: "lin-panel__lead" }, "選択した memory 設定の詳細です。対象範囲、current time / current source、snapshot files、事前ロードする skills をこの memory ごとに編集できます。"),
             h(TopSummary, { summary: summary }),
             h("p", { className: "lin-panel__path" }, "name: " + (form.name || "")),
             state.error ? h("p", { className: "lin-panel__error" }, state.error) : null,
@@ -558,6 +518,18 @@
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.enabled, disabled: !!state.saving, onCheckedChange: function (v) { toggleSelectedLaneEnabled(!!v); } }), h(Label, null, form.enabled ? "enabled" : "disabled")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "name"), h(Input, { className: "lin-panel__input", value: form.name || "", onChange: function (e) { setFormValue("name", e.target.value); }, placeholder: "setting name" }), h("p", { className: "lin-panel__hint" }, "この設定は、今開いている dashboard profile（" + activeProfile(state.payload) + "）だけに保存されるよ。")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "prompt"), h(Textarea, { className: "lin-panel__textarea", value: form.promptText || "", onChange: function (e) { setFormValue("promptText", e.target.value); }, placeholder: "Optional guidance for this setting" }), h("p", { className: "lin-panel__hint" }, "snapshot file とは別に、この lane 専用の補助 prompt を memory injection へ積めるよ。")),
+              h("div", { className: "lin-panel__field" },
+                h(Label, null, "context metadata"),
+                h("label", { className: "lin-panel__fieldRowCheckbox" },
+                  h(Checkbox, { checked: !!form.includeCurrentTime, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentTime", !!v); } }),
+                  h("span", null, "current time")
+                ),
+                h("label", { className: "lin-panel__fieldRowCheckbox" },
+                  h(Checkbox, { checked: !!form.includeCurrentSource, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentSource", !!v); } }),
+                  h("span", null, "current source")
+                ),
+                h("p", { className: "lin-panel__hint" }, "この memory が注入される時に、現在時刻や今の会話元を同じ preview / injection の中へ入れるよ。")
+              ),
               h("div", { className: "lin-panel__field" },
                 h(Label, null, "Skills (optional)"),
                 h(NameCheckboxPicker, { id: "memory-skills", available: state.availableSkills || [], selected: form.skills || [], onChange: function (skills) { setFormValue("skills", skills); }, emptyLabel: "No skills installed for this profile." }),

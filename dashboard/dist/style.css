@@ -257,19 +257,3 @@
     gap: 0.25rem;
   }
 }
-
-.lin-panel__policyCard {
-  border-style: dashed !important;
-}
-
-.lin-panel__policyGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.75rem 1rem;
-  align-items: center;
-}
-
-.lin-panel__policyHint {
-  grid-column: 1 / -1;
-  margin: 0;
-}
