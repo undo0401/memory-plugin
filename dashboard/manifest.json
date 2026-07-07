@@ -3,7 +3,7 @@
   "label": "memory",
   "description": "LIN memory 設定を一覧→詳細で扱うダッシュボード",
   "icon": "Sparkles",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "tab": {
     "path": "/memory",
     "position": "after:skills"

@@ -483,12 +483,10 @@ def _read_snapshot_text(raw_path: str) -> dict[str, Any]:
 
 
 def _current_time_entry() -> dict[str, Any]:
-    now_utc = datetime.now(timezone.utc)
-    now = now_utc.astimezone(JST)
+    now = datetime.now(JST)
     content = "\n".join(
         [
             f"Current time: {now.isoformat(timespec='seconds')} (Asia/Tokyo)",
-            f"Reference UTC: {now_utc.isoformat(timespec='seconds')}",
             "Timezone: Asia/Tokyo",
             "Use this as the fresh current time for relative dates like today, tomorrow, yesterday, later, and next time.",
         ]
