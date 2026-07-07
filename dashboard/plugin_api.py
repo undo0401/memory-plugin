@@ -45,6 +45,7 @@ DEFAULT_LANE = {
     "skills": [],
     "include_current_time": False,
     "include_current_source": False,
+    "include_memory_recall_guidance": False,
     "snapshot_files": [
         "/opt/data/state/MEMORY_EVENT_CONTEXT.md",
         "/opt/data/state/MEMORY_EMOTIONS_CONTEXT.md",
@@ -53,6 +54,7 @@ DEFAULT_LANE = {
 DEFAULT_CONFIG = {
     "schema_version": 1,
     "description": "memory dashboard v3 config",
+    "daily_memory_root": "/opt/data/workspace/diaries",
     "lanes": [],
 }
 DEFAULT_STATE = {
@@ -292,6 +294,10 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
         source.get("include_current_source"),
         False,
     )
+    normalized["include_memory_recall_guidance"] = _normalize_bool(
+        source.get("include_memory_recall_guidance"),
+        False,
+    )
     idle_seconds = _normalize_idle_seconds(source)
     normalized["idle_seconds"] = idle_seconds
     normalized["reinject_interval_minutes"] = _normalize_reinject_interval_minutes(
@@ -322,6 +328,7 @@ def _normalize_config(data: dict[str, Any] | str | None) -> dict[str, Any]:
         lanes = []
     config["schema_version"] = 1
     config["description"] = str(source.get("description") or "memory dashboard v3 config")
+    config["daily_memory_root"] = _safe_text(source.get("daily_memory_root")) or str(DEFAULT_CONFIG["daily_memory_root"])
     config["lanes"] = lanes
     return config
 
@@ -525,6 +532,33 @@ def _current_source_entry(source: Any) -> dict[str, Any]:
     }
 
 
+def _daily_memory_root(config: dict[str, Any] | None = None) -> Path:
+    raw = _safe_text((config or {}).get("daily_memory_root")) or str(DEFAULT_CONFIG["daily_memory_root"])
+    path = Path(raw)
+    if not path.is_absolute():
+        path = (plugin_root() / path).resolve()
+    return path
+
+
+def _memory_recall_guidance_entry(config: dict[str, Any]) -> dict[str, Any]:
+    root = _daily_memory_root(config)
+    content = "\n".join(
+        [
+            "## Memory Recall",
+            "When the user asks about prior work, decisions, dates, preferences, todos, or diary/daily-memory context, use `memory_search` before answering.",
+            "Use `memory_get` to read only the needed excerpt from a search hit before relying on it.",
+            f"daily_memory_root: {root}",
+        ]
+    )
+    return {
+        "path": "__memory_recall_guidance__",
+        "content": content,
+        "kind": "memory_recall_guidance",
+        "label": "memory recall guidance",
+        "date": None,
+    }
+
+
 def _format_elapsed_text(seconds: float) -> str:
     total_seconds = max(0, int(seconds))
     days, remainder = divmod(total_seconds, 86400)
@@ -588,6 +622,8 @@ def _render_injection_text(
             sections.append(content)
         elif item.get("kind") == "current_source":
             sections.append(content)
+        elif item.get("kind") == "memory_recall_guidance":
+            sections.append(content)
         else:
             sections.append(f"[Memory snapshot: {item['path']}]\n{content}")
     return "\n\n".join(sections).strip()
@@ -616,7 +652,9 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
     current_time_files = [_current_time_entry()] if include_current_time else []
     include_current_source = _normalize_bool(normalized_lane.get("include_current_source"), False)
     current_source_files = [_current_source_entry({})] if include_current_source else []
-    loaded_entries = current_time_files + current_source_files + loaded_files
+    include_memory_recall_guidance = _normalize_bool(normalized_lane.get("include_memory_recall_guidance"), False)
+    recall_guidance_files = [_memory_recall_guidance_entry(load_config())] if include_memory_recall_guidance else []
+    loaded_entries = current_time_files + current_source_files + recall_guidance_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text([normalized_lane], loaded_entries, include_skills=False)
     return {
@@ -626,6 +664,7 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
         "has_preview": bool(text),
         "include_current_time": include_current_time,
         "include_current_source": include_current_source,
+        "include_memory_recall_guidance": include_memory_recall_guidance,
         "snapshot_files": ordered_paths,
         "loaded_files": [
             {
@@ -753,7 +792,11 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         _normalize_bool(lane.get("include_current_source"), False) for lane in matched_lanes
     )
     current_source_files = [_current_source_entry(source)] if include_current_source else []
-    loaded_entries = current_time_files + current_source_files + loaded_files
+    include_memory_recall_guidance = any(
+        _normalize_bool(lane.get("include_memory_recall_guidance"), False) for lane in matched_lanes
+    )
+    recall_guidance_files = [_memory_recall_guidance_entry(normalized_config)] if include_memory_recall_guidance else []
+    loaded_entries = current_time_files + current_source_files + recall_guidance_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text(matched_lanes, loaded_entries, session_id=None)
     session_aliases = sorted(_session_selector_aliases(effective_session_key, source))
@@ -786,6 +829,7 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         },
         "include_current_time": include_current_time,
         "include_current_source": include_current_source,
+        "include_memory_recall_guidance": include_memory_recall_guidance,
         "snapshot_files": ordered_paths,
         "loaded_files": [
             {
@@ -837,6 +881,7 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
         "lane_skills": list(result.get("lane_skills") or []),
         "include_current_time": bool(result.get("include_current_time")),
         "include_current_source": bool(result.get("include_current_source")),
+        "include_memory_recall_guidance": bool(result.get("include_memory_recall_guidance")),
         "snapshot_files": list(result.get("snapshot_files") or []),
         "loaded_files": list(result.get("loaded_files") or []),
         "missing_files": list(result.get("missing_files") or []),
@@ -943,6 +988,149 @@ def _memory_lane_runtime_summary(state: dict[str, Any]) -> dict[str, Any]:
             )
     return summaries
 
+
+
+def _iter_daily_memory_files(config: dict[str, Any] | None = None) -> list[Path]:
+    root = _daily_memory_root(config or load_config())
+    if not root.exists() or not root.is_dir():
+        return []
+    return sorted([path for path in root.rglob("*.md") if path.is_file()], key=lambda p: str(p))
+
+
+def _path_is_under(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_memory_read_path(raw_path: str, config: dict[str, Any] | None = None) -> Path:
+    text = _safe_text(raw_path)
+    if not text:
+        raise HTTPException(status_code=400, detail="path is required")
+    resolved_config = config or load_config()
+    root = _daily_memory_root(resolved_config)
+    path = Path(text)
+    if not path.is_absolute():
+        path = root / path
+    path = path.resolve()
+    allowed_roots = [root]
+    for lane in list(resolved_config.get("lanes") or []):
+        if not isinstance(lane, dict):
+            continue
+        for raw_snapshot in list(lane.get("snapshot_files") or []):
+            snapshot = Path(_safe_text(raw_snapshot))
+            if snapshot.is_absolute():
+                allowed_roots.append(snapshot.parent)
+    if not any(_path_is_under(path, allowed) for allowed in allowed_roots):
+        raise HTTPException(status_code=400, detail="path must be inside daily_memory_root or a configured snapshot file directory")
+    return path
+
+
+def memory_search(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
+    request = _coerce_json_dict(payload, context="memory_search payload")
+    query = _safe_text(request.get("query"))
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    try:
+        max_results = int(request.get("maxResults") or request.get("limit") or 10)
+    except (TypeError, ValueError):
+        max_results = 10
+    max_results = max(1, min(max_results, 50))
+    corpus = _safe_text(request.get("corpus") or "memory") or "memory"
+    config = load_config()
+    root = _daily_memory_root(config)
+    terms = [part.lower() for part in re.findall(r"\w+", query, flags=re.UNICODE)]
+    try:
+        query_re = re.compile(query, re.IGNORECASE)
+    except re.error:
+        query_re = None
+    rows: list[dict[str, Any]] = []
+    if corpus not in {"memory", "all"}:
+        return {
+            "query": query,
+            "corpus": corpus,
+            "daily_memory_root": str(root),
+            "unsupported_corpus": True,
+            "results": [],
+            "message": "This Hermes memory plugin currently searches daily memory Markdown under daily_memory_root for corpus=memory/all.",
+        }
+    for path in _iter_daily_memory_files(config):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception as exc:
+            rows.append({"path": str(path), "error": str(exc), "score": 0, "snippet": ""})
+            continue
+        lower = text.lower()
+        score = 0
+        if query_re and query_re.search(text):
+            score += 5
+        for term in terms:
+            if term and term in lower:
+                score += lower.count(term)
+        if score <= 0:
+            continue
+        lines = text.splitlines()
+        hit_line = 1
+        for i, line in enumerate(lines, start=1):
+            line_lower = line.lower()
+            if (query_re and query_re.search(line)) or any(term in line_lower for term in terms):
+                hit_line = i
+                break
+        start = max(1, hit_line - 2)
+        end = min(len(lines), hit_line + 2)
+        snippet = "\n".join(lines[start - 1:end]).strip()
+        rows.append(
+            {
+                "path": str(path),
+                "relative_path": str(path.relative_to(root)) if _path_is_under(path, root) else str(path),
+                "startLine": start,
+                "endLine": end,
+                "score": score,
+                "snippet": snippet,
+                "source": "daily_memory",
+            }
+        )
+    rows.sort(key=lambda item: (-float(item.get("score") or 0), str(item.get("path") or "")))
+    return {
+        "query": query,
+        "corpus": corpus,
+        "daily_memory_root": str(root),
+        "results": rows[:max_results],
+        "result_count": len(rows[:max_results]),
+        "total_matches": len(rows),
+    }
+
+
+def memory_get(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
+    request = _coerce_json_dict(payload, context="memory_get payload")
+    config = load_config()
+    path = _resolve_memory_read_path(_safe_text(request.get("path")), config)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail=f"memory file not found: {path}")
+    try:
+        from_line = int(request.get("from") or 1)
+    except (TypeError, ValueError):
+        from_line = 1
+    try:
+        line_count = int(request.get("lines") or 80)
+    except (TypeError, ValueError):
+        line_count = 80
+    from_line = max(1, from_line)
+    line_count = max(1, min(line_count, 500))
+    all_lines = path.read_text(encoding="utf-8").splitlines()
+    start_index = min(from_line - 1, len(all_lines))
+    end_index = min(len(all_lines), start_index + line_count)
+    excerpt = "\n".join(all_lines[start_index:end_index])
+    return {
+        "path": str(path),
+        "from": from_line,
+        "lines": end_index - start_index,
+        "total_lines": len(all_lines),
+        "has_more": end_index < len(all_lines),
+        "content": excerpt,
+    }
 
 
 def _dispatch_registry_tool(args: dict[str, Any]) -> dict[str, Any]:

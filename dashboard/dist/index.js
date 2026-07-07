@@ -156,6 +156,7 @@
       prompt: "",
       include_current_time: false,
       include_current_source: false,
+      include_memory_recall_guidance: false,
       idle_seconds: 0,
       reinject_interval_minutes: 0,
       target_sessions: [],
@@ -225,6 +226,8 @@
             skills: Array.isArray(lane.skills) ? lane.skills.slice() : [],
             includeCurrentTime: !!lane.include_current_time,
             includeCurrentSource: !!lane.include_current_source,
+            includeMemoryRecallGuidance: !!lane.include_memory_recall_guidance,
+            dailyMemoryRoot: String(config.daily_memory_root || "/opt/data/workspace/diaries"),
             scopeMode: defaultScopeMode(lane),
             targetSessionsText: ((lane.target_sessions || []).filter(function (item) { return item !== "*"; })).join("\n"),
             targetProfile: activeProfile(payload),
@@ -277,7 +280,7 @@
       return "one session selector per line";
     }
     function currentConfig() {
-      return (state.payload && state.payload.config) || { schema_version: 1, description: "memory dashboard v3 config", lanes: [] };
+      return (state.payload && state.payload.config) || { schema_version: 1, description: "memory dashboard v3 config", daily_memory_root: "/opt/data/workspace/diaries", lanes: [] };
     }
     function currentLanes() {
       return Array.isArray(currentConfig().lanes) ? currentConfig().lanes : [];
@@ -310,6 +313,7 @@
         skills: Array.isArray(form.skills) ? form.skills.slice() : [],
         include_current_time: !!form.includeCurrentTime,
         include_current_source: !!form.includeCurrentSource,
+        include_memory_recall_guidance: !!form.includeMemoryRecallGuidance,
         idle_seconds: 0,
         reinject_interval_minutes: 0,
         target_sessions: useTarget ? scopeValues : [],
@@ -323,6 +327,7 @@
       const config = clone(currentConfig());
       config.schema_version = 1;
       config.description = String(config.description || "memory dashboard v3 config");
+      config.daily_memory_root = String((state.form && state.form.dailyMemoryRoot) || config.daily_memory_root || "/opt/data/workspace/diaries").trim() || "/opt/data/workspace/diaries";
       const lanes = currentLanes().slice();
       const nextLane = buildLanePayload();
       if (!nextLane.name) throw new Error("name is required");
@@ -442,6 +447,7 @@
     }
     function setBulkInjectionPolicy(key, enabled) {
       var payload = clone(currentConfig());
+      payload.daily_memory_root = String((state.form && state.form.dailyMemoryRoot) || payload.daily_memory_root || "/opt/data/workspace/diaries").trim() || "/opt/data/workspace/diaries";
       var visibleNames = new Set(visibleLanes().map(function (lane) { return String(lane.name); }));
       var lanes = Array.isArray(payload.lanes) ? payload.lanes.slice() : [];
       payload.lanes = lanes.map(function (lane) {
@@ -451,6 +457,13 @@
         return next;
       });
       persistConfig(payload, enabled ? "Injection policy enabled" : "Injection policy disabled", { view: "list" });
+    }
+    function saveDailyMemoryRoot() {
+      var payload = clone(currentConfig());
+      payload.schema_version = 1;
+      payload.description = String(payload.description || "memory dashboard v3 config");
+      payload.daily_memory_root = String((state.form && state.form.dailyMemoryRoot) || payload.daily_memory_root || "/opt/data/workspace/diaries").trim() || "/opt/data/workspace/diaries";
+      persistConfig(payload, "Daily memory root saved", { view: "list" });
     }
 
     var payload = state.payload || {};
@@ -487,7 +500,20 @@
               h("span", null, "current source"),
               bulkPolicyMixed("include_current_source") ? h(Pill, { tone: "muted" }, "mixed") : null
             ),
-            h("p", { className: "lin-panel__hint lin-panel__policyHint" }, "この2つは現在の profile に見えている memory 設定へ一括で適用されます。個別 lane の詳細画面では編集しません。")
+            h("label", { className: "lin-panel__fieldRowCheckbox" },
+              h(Checkbox, { checked: bulkPolicyValue("include_memory_recall_guidance"), disabled: !!state.saving || !lanes.length, onCheckedChange: function (v) { setBulkInjectionPolicy("include_memory_recall_guidance", !!v); } }),
+              h("span", null, "memory_search / memory_get guidance"),
+              bulkPolicyMixed("include_memory_recall_guidance") ? h(Pill, { tone: "muted" }, "mixed") : null
+            ),
+            h("div", { className: "lin-panel__field", style: { gridColumn: "1 / -1" } },
+              h(Label, null, "daily memory root"),
+              h(Input, { className: "lin-panel__input", value: form.dailyMemoryRoot || "/opt/data/workspace/diaries", onChange: function (e) { setFormValue("dailyMemoryRoot", e.target.value); }, placeholder: "/opt/data/workspace/diaries" }),
+              h("div", { className: "lin-panel__buttonRow" },
+                h(Button, { type: "button", onClick: saveDailyMemoryRoot, disabled: !!state.saving }, state.saving ? "Saving..." : "Save daily memory root")
+              ),
+              h("p", { className: "lin-panel__hint" }, "memory_search / memory_get が読む diary / daily memory の場所です。相対パスは memory plugin root 基準です。")
+            ),
+            h("p", { className: "lin-panel__hint lin-panel__policyHint" }, "この3つは現在の profile に見えている memory 設定へ一括で適用されます。daily memory root は config 全体の共通設定です。")
           )
         ),
         h("div", { className: "lin-panel__list" },
@@ -515,6 +541,7 @@
                     h("span", null, "skills · " + ((item.skills || []).join(", ") || "(none)")),
                     h("span", null, "current time · " + (item.include_current_time ? "inject" : "skip")),
                     h("span", null, "current source · " + (item.include_current_source ? "inject" : "skip")),
+                    h("span", null, "recall guidance · " + (item.include_memory_recall_guidance ? "inject" : "skip")),
                     h("span", null, "files · " + (files.length ? truncate(files.join(", "), 160) : "(none)"))
                   )
                 ),
@@ -540,6 +567,7 @@
       var summaryTargetProfiles = activeProfile(state.payload);
       var summaryCurrentTime = form.includeCurrentTime ? "inject" : "skip";
       var summaryCurrentSource = form.includeCurrentSource ? "inject" : "skip";
+      var summaryRecallGuidance = form.includeMemoryRecallGuidance ? "inject" : "skip";
       var summarySkills = Array.isArray(form.skills) && form.skills.length ? form.skills.join(", ") : "(none)";
       var runtimeInfo = laneRuntime(form.name) || {};
       var previewInfo = lanePreview(form.name) || {};
@@ -602,6 +630,8 @@
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "skills"), h("dd", null, summarySkills)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current time"), h("dd", null, summaryCurrentTime)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current source"), h("dd", null, summaryCurrentSource)),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "recall guidance"), h("dd", null, summaryRecallGuidance)),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "daily memory root"), h("dd", null, form.dailyMemoryRoot || "/opt/data/workspace/diaries")),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "target"), h("dd", null, summaryTargetKind + " · " + summaryTargetText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude"), h("dd", null, summaryTargetKind + " · " + summaryExcludeText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "dashboard profile"), h("dd", null, summaryTargetProfiles)),
