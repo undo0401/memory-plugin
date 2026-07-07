@@ -5,7 +5,7 @@ import importlib
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -46,8 +46,8 @@ DEFAULT_LANE = {
     "include_current_time": False,
     "include_current_source": False,
     "snapshot_files": [
-        "/opt/data/state/MEMORY_EVENT_CONTEXT.md",
-        "/opt/data/state/MEMORY_EMOTIONS_CONTEXT.md",
+        "state/MEMORY_EVENT_CONTEXT.md",
+        "state/MEMORY_EMOTIONS_CONTEXT.md",
     ],
 }
 DEFAULT_CONFIG = {
@@ -65,6 +65,8 @@ DEFAULT_STATE = {
     "last_resolution": None,
     "session_runtime": {},
 }
+SNAPSHOT_PATH_ROOT = Path("/opt/data")
+_DATE_TOKEN_RE = re.compile(r"\{(?P<name>TODAY|YESTERDAY|YESTADAY)(?P<offset>[+-]\d+)?\}", re.IGNORECASE)
 
 
 def now_iso() -> str:
@@ -81,6 +83,32 @@ def config_path() -> Path:
 
 def state_path() -> Path:
     return plugin_root() / STATE_DIRNAME / STATE_FILENAME
+
+
+def _snapshot_path_root() -> Path:
+    return SNAPSHOT_PATH_ROOT
+
+
+def _expand_snapshot_path_tokens(raw_path: str, *, now: datetime | None = None) -> str:
+    base_date = (now or datetime.now(JST)).date()
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group("name").upper()
+        offset_text = match.group("offset") or ""
+        offset = int(offset_text) if offset_text else 0
+        if name in {"YESTERDAY", "YESTADAY"}:
+            offset -= 1
+        return (base_date + timedelta(days=offset)).isoformat()
+
+    return _DATE_TOKEN_RE.sub(replace, _safe_text(raw_path))
+
+
+def _resolve_snapshot_path(raw_path: str) -> Path:
+    expanded = _expand_snapshot_path_tokens(raw_path)
+    path = Path(expanded)
+    if not path.is_absolute():
+        path = (_snapshot_path_root() / path).resolve()
+    return path
 
 
 def _ensure_parent(path: Path) -> None:
@@ -464,9 +492,7 @@ def _select_matching_lanes(config: dict[str, Any], session_key: str, source: Any
 
 
 def _read_snapshot_text(raw_path: str) -> dict[str, Any]:
-    path = Path(raw_path)
-    if not path.is_absolute():
-        path = (plugin_root() / path).resolve()
+    path = _resolve_snapshot_path(raw_path)
     result = {"path": str(path), "exists": path.exists(), "content": "", "error": None}
     if not path.exists():
         result["error"] = "missing"

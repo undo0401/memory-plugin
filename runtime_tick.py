@@ -163,15 +163,13 @@ def _content_hash(file_rows: list[dict[str, Any]]) -> str:
     return "sha256:" + hashlib.sha256(blob).hexdigest()
 
 
-def _source_mtimes(paths: list[str]) -> dict[str, str]:
+def _source_mtimes(api: Any, paths: list[str]) -> dict[str, str]:
     results: dict[str, str] = {}
     for raw_path in list(paths):
         text = str(raw_path or "").strip()
         if not text:
             continue
-        path = Path(text)
-        if not path.is_absolute():
-            path = (_plugin_root() / path).resolve()
+        path = api._resolve_snapshot_path(text)
         if not path.exists():
             continue
         try:
@@ -250,7 +248,7 @@ async def _apply_memory_tick_for_lane(self, api: Any, state: dict[str, Any], ses
     ordered_paths, file_rows, loaded_rows = _candidate_source_rows(api, lane)
     missing_rows = [item for item in file_rows if item.get("error")]
     source_hash = _content_hash(file_rows)
-    source_mtimes = _source_mtimes(ordered_paths)
+    source_mtimes = _source_mtimes(api, ordered_paths)
     previous_hash = str(lane_state.get("last_source_hash") or "")
     decision_reason = "source_changed" if source_hash != previous_hash else "source_unchanged"
     source = getattr(entry, "origin", None)
