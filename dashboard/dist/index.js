@@ -43,6 +43,10 @@
     const limit = max || 120;
     return text.length > limit ? text.slice(0, limit) + "…" : text;
   }
+  function promptPreview(prompt) {
+    const text = String(prompt || "").trim();
+    return text ? truncate(text, 160) : "(prompt not set yet)";
+  }
   function StatusBadge(props) {
     const on = statusOn(props.value);
     return h(Badge, { className: on ? "lin-panel__badge lin-panel__badge--on" : "lin-panel__badge lin-panel__badge--off" }, on ? "enabled" : "disabled");
@@ -521,9 +525,9 @@
       var summaryTargetProfiles = activeProfile(state.payload);
       var summaryCurrentTime = form.includeCurrentTime ? "inject" : "skip";
       var summaryCurrentSource = form.includeCurrentSource ? "inject" : "skip";
-      var summaryPromptText = String(form.promptText || "").trim() || "(none)";
       var summarySkills = Array.isArray(form.skills) && form.skills.length ? form.skills.join(", ") : "(none)";
       var runtimeInfo = laneRuntime(form.name) || {};
+      var previewInfo = lanePreview(form.name) || {};
       var summary = topSummary(payload, lanes);
       return h("div", { className: "lin-panel" },
         h(Card, { className: "lin-panel__hero" },
@@ -572,22 +576,26 @@
             )
           ),
           h(Card, { className: "lin-panel__card" },
-            h(CardHeader, null, h(CardTitle, null, "Summary")),
+            h(CardHeader, null, h(CardTitle, null, "Summary / preview")),
             h(CardContent, { className: "lin-panel__content" },
               h("div", { className: "lin-panel__summary" },
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "prompt"), h("dd", null, promptPreview(form.promptText))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last run"), h("dd", null, formatMinutesAgo(runtimeInfo.last_applied_minutes_ago, runtimeInfo.last_applied_at))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "last reason"), h("dd", null, String(runtimeInfo.last_decision_reason || "(none)"))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "matched sessions"), h("dd", null, String(runtimeInfo.matched_session_count || 0))),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "prompt"), h("dd", null, summaryPromptText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "skills"), h("dd", null, summarySkills)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current time"), h("dd", null, summaryCurrentTime)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current source"), h("dd", null, summaryCurrentSource)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "target"), h("dd", null, summaryTargetKind + " · " + summaryTargetText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude"), h("dd", null, summaryTargetKind + " · " + summaryExcludeText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "dashboard profile"), h("dd", null, summaryTargetProfiles)),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "files"), h("dd", null, splitLines(form.snapshotFilesText).join(", ") || "(none)")),
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "files"), h("dd", null, splitLines(form.snapshotFilesText).join(", ") || "(none)"))
+              ),
+              h("div", { className: "lin-panel__summary" },
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "preview"), h("dd", null, previewInfo.has_preview ? "ready" : "(none)")),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "source session"), h("dd", null, String(runtimeInfo.last_session_key || "(none)")))
-              )
+              ),
+              h("pre", { className: "lin-panel__textarea lin-panel__preview", style: { whiteSpace: "pre-wrap" } }, String(previewInfo.text || "(preview empty)"))
             )
           )
         )
