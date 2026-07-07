@@ -35,26 +35,6 @@ def _control_handler(args: dict[str, Any], **_: Any) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
-def _memory_search_handler(args: dict[str, Any], **_: Any) -> str:
-    from hermes_plugins.memory import control
-
-    try:
-        result = control.memory_search(args or {})
-    except Exception as exc:
-        result = {"error": f"{type(exc).__name__}: {exc}"}
-    return json.dumps(result, ensure_ascii=False)
-
-
-def _memory_get_handler(args: dict[str, Any], **_: Any) -> str:
-    from hermes_plugins.memory import control
-
-    try:
-        result = control.memory_get(args or {})
-    except Exception as exc:
-        result = {"error": f"{type(exc).__name__}: {exc}"}
-    return json.dumps(result, ensure_ascii=False)
-
-
 def register(ctx) -> None:
     """Register the memory registry tool surface."""
     ctx.register_tool(
@@ -68,7 +48,7 @@ def register(ctx) -> None:
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["get_config", "put_config", "resolve", "health"],
+                        "enum": ["get_config", "put_config", "resolve"],
                         "description": "Operation to perform.",
                     },
                     "config": {
@@ -85,52 +65,6 @@ def register(ctx) -> None:
         },
         handler=_control_handler,
         description="Memory plugin control surface.",
-        emoji="🫧",
-    )
-
-    ctx.register_tool(
-        name="memory_search",
-        toolset="memory",
-        schema={
-            "name": "memory_search",
-            "description": "Search configured daily memory Markdown files before answering questions about prior work, decisions, dates, people, preferences, todos, or diary context.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search query."},
-                    "maxResults": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Maximum result rows."},
-                    "minScore": {"type": "number", "description": "Accepted for OpenClaw compatibility; currently informational."},
-                    "corpus": {"type": "string", "enum": ["memory", "wiki", "all", "sessions"], "description": "Corpus selector. This plugin currently searches daily memory for memory/all."},
-                },
-                "required": ["query"],
-                "additionalProperties": False,
-            },
-        },
-        handler=_memory_search_handler,
-        description="Search daily memory.",
-        emoji="🫧",
-    )
-
-    ctx.register_tool(
-        name="memory_get",
-        toolset="memory",
-        schema={
-            "name": "memory_get",
-            "description": "Read a small excerpt from a memory_search result path.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Path or relative_path returned by memory_search."},
-                    "from": {"type": "integer", "minimum": 1, "description": "1-based start line."},
-                    "lines": {"type": "integer", "minimum": 1, "maximum": 500, "description": "Number of lines to read."},
-                    "corpus": {"type": "string", "enum": ["memory", "wiki", "all"], "description": "Accepted for OpenClaw compatibility."},
-                },
-                "required": ["path"],
-                "additionalProperties": False,
-            },
-        },
-        handler=_memory_get_handler,
-        description="Read memory excerpt.",
         emoji="🫧",
     )
 

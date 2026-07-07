@@ -87,13 +87,6 @@ def resolve(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
     }
 
 
-def memory_search(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
-    return api.memory_search(payload)
-
-
-def memory_get(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
-    return api.memory_get(payload)
-
 
 def health() -> dict[str, Any]:
     """Return plugin-owned memory health for System Desk."""
