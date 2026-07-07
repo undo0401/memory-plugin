@@ -410,10 +410,6 @@
     }
     function deleteCurrentLane() {
       var lanes = currentLanes();
-      if (lanes.length <= 1) {
-        setState(function (prev) { return Object.assign({}, prev, { error: "最後の memory は消せないよ", banner: "" }); });
-        return;
-      }
       var current = currentLane();
       if (!current) return;
       if (typeof window !== "undefined" && window.confirm && !window.confirm("Delete memory '" + current.name + "'?")) return;
