@@ -294,9 +294,10 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
     )
     idle_seconds = _normalize_idle_seconds(source)
     normalized["idle_seconds"] = idle_seconds
-    normalized["reinject_interval_minutes"] = _normalize_reinject_interval_minutes(
-        source.get("reinject_interval_minutes") if source.get("reinject_interval_minutes") is not None else idle_seconds / 60
-    )
+    if idle_seconds > 0:
+        normalized["reinject_interval_minutes"] = _normalize_reinject_interval_minutes(idle_seconds / 60)
+    else:
+        normalized["reinject_interval_minutes"] = _normalize_reinject_interval_minutes(source.get("reinject_interval_minutes"))
     normalized["max_session_age_seconds"] = _normalize_nonnegative_seconds(
         source.get("max_session_age_seconds"),
         DEFAULT_LANE.get("max_session_age_seconds", 86400),
