@@ -509,20 +509,17 @@ def _display_channel_name(source: Any) -> str:
 
 
 def _current_source_entry(source: Any) -> dict[str, Any]:
-    platform = _platform_text(source) or "unknown"
     chat_name = _safe_text(_source_get(source, "chat_name", ""))
-    channel = _display_channel_name(source)
-    lines = [
-        f"platform: {platform}",
-        f"channel: {channel}",
-    ]
-    if chat_name and chat_name != channel:
-        lines.append(f"chat_name: {chat_name}")
+    if chat_name:
+        parts = [_safe_text(part) for part in chat_name.split(" / ") if _safe_text(part)]
+        source_label = parts[0] if parts else chat_name
+    else:
+        source_label = _display_channel_name(source)
     return {
         "path": "__current_source__",
-        "content": "\n".join(lines),
+        "content": source_label,
         "kind": "current_source",
-        "label": channel,
+        "label": source_label,
         "date": None,
     }
 
@@ -566,11 +563,7 @@ def _render_injection_text(
 ) -> str:
     if not matched_lanes:
         return ""
-    lane_names = ", ".join(str(lane.get("name") or "unknown") for lane in matched_lanes)
-    sections = [
-        "[IMPORTANT: The following MEMORY context was auto-injected for this session. Treat it as background context. Use it when relevant, and avoid quoting it unless it materially helps the user.]",
-        f"[Memory lanes: {lane_names}]",
-    ]
+    sections: list[str] = []
     for lane in matched_lanes:
         prompt_text = str(lane.get("prompt") or "").strip()
         if not prompt_text:
@@ -593,16 +586,12 @@ def _render_injection_text(
         if not content.strip():
             continue
         if item.get("kind") == "current_time":
-            sections.append(
-                f"[Current time: {item.get('date') or ''}]\n{content}"
-            )
+            sections.append(content)
         elif item.get("kind") == "current_source":
-            sections.append(f"[Current source: {item.get('label') or 'runtime source'}]\n{content}")
+            sections.append(f"Current source: {content}")
         else:
             sections.append(f"[Memory snapshot: {item['path']}]\n{content}")
-    if len(sections) <= 2:
-        return ""
-    return "\n\n".join(sections)
+    return "\n\n".join(sections).strip()
 
 
 def _truncate_preview_text(value: Any, *, limit: int = 400) -> str:
