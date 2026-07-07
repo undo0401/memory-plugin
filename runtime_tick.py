@@ -185,45 +185,57 @@ def _matching_lanes(api: Any, config: dict[str, Any], session_key: str, source: 
     return {str(lane.get("name") or "") for lane in api._select_matching_lanes(config, session_key, source)}
 
 
-def _resolve_pre_call_memory_context(api: Any, *, session_key: str | None, source: Any) -> tuple[str, dict[str, Any]]:
-    """Return the full configured memory context for matching lanes.
+def _resolve_pre_call_memory_policy(
+    api: Any,
+    *,
+    session_key: str | None,
+    session_id: str | None,
+    source: Any,
+) -> dict[str, Any]:
+    """Return the configured memory policy for the pre-call injection path.
 
-    This is the override-free runtime injection path. It reuses the dashboard
-    resolver so lane prompts, snapshot_files, and current
-    time all follow the same configuration and preview behavior.
+    The dashboard resolver owns lane matching and text rendering. The policy
+    layer decides whether to inject now: first matched session, every call when
+    the interval is 0m, or after the configured interval has elapsed.
     """
     config = api.load_config()
     effective_session_key = api._safe_text(session_key) or api._build_session_key_from_source(source)
-    result = api.resolve_memory_injection(config, effective_session_key, source)
-    text = str(result.get("text") or "").strip()
-    return text, result
+    return api.resolve_memory_injection_policy(
+        config,
+        effective_session_key,
+        source,
+        is_new_session=False,
+        session_id=session_id or "",
+    )
 
 
 def _with_pre_call_memory_context(api: Any, *, runner: Any, context_prompt: Any, session_key: str | None, session_id: str | None, source: Any) -> str:
     base = str(context_prompt or "")
-    text, result = _resolve_pre_call_memory_context(api, session_key=session_key, source=source)
-    if not text:
-        return base
-    policy = {
-        "result": result,
-        "session_key": result.get("session_key") or session_key or "",
-        "session_id": session_id or "",
-        "is_new_session": False,
-        "should_inject": True,
-        "decision_reason": "pre_call_memory",
-        "reinject_interval_minutes": 0,
-        "matched_reinject_intervals": [],
-        "last_injected_at": None,
-        "elapsed_minutes": None,
-    }
     try:
-        api.update_memory_resolution_state(policy, injected=True)
+        policy = _resolve_pre_call_memory_policy(api, session_key=session_key, session_id=session_id, source=source)
+    except Exception:
+        logger.debug("memory tick: failed to resolve pre-call memory policy", exc_info=True)
+        return base
+    result = dict(policy.get("result") or {})
+    text = str(result.get("text") or "").strip()
+    should_inject = bool(policy.get("should_inject")) and bool(text)
+    try:
+        api.update_memory_resolution_state(policy, injected=should_inject)
     except Exception:
         logger.debug("memory tick: failed to update pre-call memory state", exc_info=True)
+    if not should_inject:
+        logger.debug(
+            "memory tick: pre-call memory skipped session=%s lanes=%s reason=%s",
+            result.get("session_key") or session_key or "",
+            result.get("lane_names"),
+            policy.get("decision_reason"),
+        )
+        return base
     logger.debug(
-        "memory tick: pre-call memory context resolved session=%s lanes=%s chars=%d",
+        "memory tick: pre-call memory context injected session=%s lanes=%s reason=%s chars=%d",
         result.get("session_key") or session_key or "",
         result.get("lane_names"),
+        policy.get("decision_reason"),
         len(text),
     )
     return (base + "\n\n" + text).strip()

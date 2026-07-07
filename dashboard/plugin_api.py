@@ -703,11 +703,13 @@ def resolve_memory_injection_policy(
             should_inject = True
             decision_reason = "new_session"
         elif reinject_interval_minutes <= 0:
-            decision_reason = "interval_disabled"
+            should_inject = True
+            decision_reason = "interval_zero_always"
         elif not effective_session_key:
             decision_reason = "missing_session_key"
         elif not last_injected_at:
-            decision_reason = "awaiting_initial_injection"
+            should_inject = True
+            decision_reason = "initial_session"
         elif elapsed_minutes is not None and elapsed_minutes >= float(reinject_interval_minutes):
             should_inject = True
             decision_reason = "interval_elapsed"
