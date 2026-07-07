@@ -215,8 +215,22 @@ def _with_pre_call_memory_context(api: Any, *, runner: Any, context_prompt: Any,
         logger.debug("memory tick: failed to resolve pre-call memory policy", exc_info=True)
         return base
     result = dict(policy.get("result") or {})
+    should_inject = bool(policy.get("should_inject")) and bool(result.get("matched"))
+    if should_inject:
+        try:
+            command_result = api.run_pre_context_commands(
+                list(result.get("lanes") or []),
+                session_key=str(result.get("session_key") or session_key or ""),
+                session_id=session_id or "",
+                source=source,
+            )
+            result = api.append_pre_context_command_results(result, command_result)
+            policy = dict(policy)
+            policy["result"] = result
+        except Exception:
+            logger.debug("memory tick: failed to run pre-context command", exc_info=True)
     text = str(result.get("text") or "").strip()
-    should_inject = bool(policy.get("should_inject")) and bool(text)
+    should_inject = should_inject and bool(text)
     try:
         api.update_memory_resolution_state(policy, injected=should_inject)
     except Exception:

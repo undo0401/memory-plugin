@@ -5,6 +5,7 @@ import importlib
 import json
 import logging
 import re
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,8 @@ DEFAULT_LANE = {
     "skills": [],
     "include_current_time": False,
     "include_current_source": False,
+    "pre_context_command": "",
+    "pre_context_timeout_seconds": 8,
     "snapshot_files": [
         "state/MEMORY_EVENT_CONTEXT.md",
         "state/MEMORY_EMOTIONS_CONTEXT.md",
@@ -301,6 +304,14 @@ def _normalize_nonnegative_seconds(value: Any, default: int = 0) -> int:
     return max(0, seconds)
 
 
+def _normalize_positive_seconds(value: Any, default: int = 8) -> int:
+    try:
+        seconds = int(round(float(value)))
+    except (TypeError, ValueError):
+        return max(1, int(default))
+    return max(1, seconds)
+
+
 def _normalize_idle_seconds(source: dict[str, Any]) -> int:
     explicit = source.get("idle_seconds")
     if explicit is not None and str(explicit).strip() != "":
@@ -339,6 +350,11 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
     normalized["exclude_sessions"] = _normalize_lines(list(source.get("exclude_sessions") or []))
     normalized["exclude_profiles"] = _normalize_lines(list(source.get("exclude_profiles") or []))
     normalized["skills"] = _normalize_lines(list(source.get("skills") or []))
+    normalized["pre_context_command"] = str(source.get("pre_context_command") or "").strip()
+    normalized["pre_context_timeout_seconds"] = _normalize_positive_seconds(
+        source.get("pre_context_timeout_seconds"),
+        DEFAULT_LANE.get("pre_context_timeout_seconds", 8),
+    )
     normalized["snapshot_files"] = _normalize_lines(list(source.get("snapshot_files") or []))
     return normalized
 
@@ -406,6 +422,16 @@ def _definition_target_patterns(lane: dict[str, Any]) -> list[str]:
 
 def _definition_exclude_patterns(lane: dict[str, Any]) -> list[str]:
     return list(lane.get("exclude_sessions") or [])
+
+
+def _lane_selector_kind(lane: dict[str, Any]) -> str:
+    targets = [item for item in _definition_target_patterns(lane) if item != "*"]
+    excludes = _definition_exclude_patterns(lane)
+    if targets:
+        return "target"
+    if excludes:
+        return "exclude"
+    return "all"
 
 
 def _build_session_key_from_source(source: Any) -> str:
@@ -556,6 +582,140 @@ def _current_source_entry(source: Any) -> dict[str, Any]:
     }
 
 
+def _pre_context_command_payload(lane: dict[str, Any], *, session_key: str, session_id: str | None, source: Any) -> dict[str, Any]:
+    now = datetime.now(JST)
+    return {
+        "lane_name": str(lane.get("name") or ""),
+        "session_key": _safe_text(session_key),
+        "session_id": _safe_text(session_id or ""),
+        "profile": _active_profile_name(),
+        "platform": _platform_text(source),
+        "chat_id": _safe_text(_source_get(source, "chat_id", "")),
+        "thread_id": _safe_text(_source_get(source, "thread_id", "")),
+        "parent_chat_id": _safe_text(_source_get(source, "parent_chat_id", "")),
+        "chat_name": _safe_text(_source_get(source, "chat_name", "")),
+        "current_time": now.isoformat(timespec="seconds"),
+        "timezone": "Asia/Tokyo",
+    }
+
+
+def _coerce_pre_context_stdout(stdout: str, *, fallback_title: str) -> tuple[str, str]:
+    text = str(stdout or "").strip()
+    if not text:
+        return fallback_title, ""
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError:
+        return fallback_title, text
+    if not isinstance(decoded, dict):
+        return fallback_title, text
+    title = _safe_text(decoded.get("title")) or fallback_title
+    context = _safe_text(decoded.get("context"))
+    if context:
+        return title, context
+    items = decoded.get("items")
+    if isinstance(items, list) and items:
+        rendered = json.dumps(items, ensure_ascii=False, indent=2)
+        return title, rendered
+    if decoded.get("ok") is False:
+        reason = _safe_text(decoded.get("error") or decoded.get("reason") or "command returned ok=false")
+        return title, f"(skipped: {reason})"
+    return title, text
+
+
+def run_pre_context_commands(lanes: list[dict[str, Any]], *, session_key: str, source: Any, session_id: str | None = None) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for lane in lanes:
+        command = _safe_text(lane.get("pre_context_command"))
+        if not command:
+            continue
+        lane_name = str(lane.get("name") or "unknown")
+        timeout_seconds = _normalize_positive_seconds(lane.get("pre_context_timeout_seconds"), 8)
+        payload = _pre_context_command_payload(lane, session_key=session_key, session_id=session_id, source=source)
+        try:
+            completed = subprocess.run(
+                command,
+                input=json.dumps(payload, ensure_ascii=False),
+                text=True,
+                capture_output=True,
+                cwd=str(plugin_root()),
+                shell=True,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            errors.append({"lane_name": lane_name, "command": command, "timeout_seconds": timeout_seconds, "error": "timeout"})
+            continue
+        except Exception as exc:  # pragma: no cover - defensive runtime path
+            errors.append({"lane_name": lane_name, "command": command, "timeout_seconds": timeout_seconds, "error": str(exc)})
+            continue
+        stdout = str(completed.stdout or "").strip()
+        stderr = str(completed.stderr or "").strip()
+        if completed.returncode != 0:
+            errors.append({
+                "lane_name": lane_name,
+                "command": command,
+                "timeout_seconds": timeout_seconds,
+                "exit_code": int(completed.returncode),
+                "stderr": stderr[-1000:],
+                "stdout": stdout[-1000:],
+                "error": "nonzero_exit",
+            })
+            continue
+        title, context = _coerce_pre_context_stdout(stdout, fallback_title=f"pre-context command: {lane_name}")
+        if not context:
+            continue
+        if len(context) > 6000:
+            context = context[:5999].rstrip() + "…"
+        entries.append({
+            "path": f"__pre_context_command__:{lane_name}",
+            "content": f"[Pre-context command: {title}]\n{context}",
+            "kind": "pre_context_command",
+            "label": title,
+            "date": None,
+            "command": command,
+            "timeout_seconds": timeout_seconds,
+        })
+    return {"entries": entries, "errors": errors}
+
+
+def append_pre_context_command_results(result: dict[str, Any], command_result: dict[str, Any]) -> dict[str, Any]:
+    next_result = dict(result or {})
+    entries = list(command_result.get("entries") or [])
+    errors = list(command_result.get("errors") or [])
+    if entries:
+        addition = _render_injection_text(list(next_result.get("lanes") or []), entries, include_skills=False)
+        if addition:
+            base = _safe_text(next_result.get("text"))
+            next_result["text"] = (base + "\n\n" + addition).strip() if base else addition
+        loaded = list(next_result.get("loaded_files") or [])
+        loaded.extend(
+            {
+                "path": item.get("path"),
+                "chars": len(str(item.get("content") or "")),
+                "kind": str(item.get("kind") or "pre_context_command"),
+                "label": item.get("label"),
+                "date": item.get("date"),
+            }
+            for item in entries
+        )
+        next_result["loaded_files"] = loaded
+    next_result["pre_context_command_results"] = {
+        "ran": len(entries) + len(errors),
+        "loaded": [
+            {"lane_name": str(item.get("path", "")).split(":", 1)[-1], "label": item.get("label"), "chars": len(str(item.get("content") or ""))}
+            for item in entries
+        ],
+        "errors": errors,
+    }
+    if errors:
+        missing = list(next_result.get("missing_files") or [])
+        missing.extend({"path": f"__pre_context_command__:{err.get('lane_name')}", "error": err.get("error")} for err in errors)
+        next_result["missing_files"] = missing
+    next_result["matched"] = bool(_safe_text(next_result.get("text")) or next_result.get("lane_names"))
+    return next_result
+
+
 def _format_elapsed_text(seconds: float) -> str:
     total_seconds = max(0, int(seconds))
     days, remainder = divmod(total_seconds, 86400)
@@ -652,6 +812,9 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
     loaded_entries = current_time_files + current_source_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text([normalized_lane], loaded_entries, include_skills=False)
+    pre_context_command = _safe_text(normalized_lane.get("pre_context_command"))
+    if pre_context_command and not text:
+        text = f"[Pre-context command configured: {normalized_lane.get('name') or 'memory'}]\n(command output is only executed in the pre-call runtime path)"
     return {
         "lane_name": str(normalized_lane.get("name") or ""),
         "text": text,
@@ -660,6 +823,13 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
         "include_current_time": include_current_time,
         "include_current_source": include_current_source,
         "snapshot_files": ordered_paths,
+        "pre_context_commands": [
+            {
+                "lane_name": str(normalized_lane.get("name") or ""),
+                "command": pre_context_command,
+                "timeout_seconds": int(normalized_lane.get("pre_context_timeout_seconds") or 8),
+            }
+        ] if pre_context_command else [],
         "loaded_files": [
             {
                 "path": item["path"],
@@ -671,6 +841,8 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
             for item in loaded_entries
         ],
         "missing_files": [{"path": item["path"], "error": item.get("error")} for item in missing_files],
+        "pre_context_command": pre_context_command,
+        "pre_context_timeout_seconds": int(normalized_lane.get("pre_context_timeout_seconds") or 8),
     }
 
 
@@ -787,10 +959,19 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
     loaded_entries = current_time_files + current_source_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text(matched_lanes, loaded_entries, session_id=None)
+    pre_context_commands = [
+        {
+            "lane_name": str(lane.get("name") or ""),
+            "command": _safe_text(lane.get("pre_context_command")),
+            "timeout_seconds": int(lane.get("pre_context_timeout_seconds") or 8),
+        }
+        for lane in matched_lanes
+        if _safe_text(lane.get("pre_context_command"))
+    ]
     session_aliases = sorted(_session_selector_aliases(effective_session_key, source))
     active_profile = _active_profile_name()
     return {
-        "matched": bool(text),
+        "matched": bool(text or pre_context_commands),
         "session_key": effective_session_key,
         "active_profile": active_profile,
         "lane_names": [str(lane.get("name") or "") for lane in matched_lanes],
@@ -817,6 +998,7 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         "include_current_time": include_current_time,
         "include_current_source": include_current_source,
         "snapshot_files": ordered_paths,
+        "pre_context_commands": pre_context_commands,
         "loaded_files": [
             {
                 "path": item["path"],
@@ -867,6 +1049,8 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
         "include_current_time": bool(result.get("include_current_time")),
         "include_current_source": bool(result.get("include_current_source")),
         "snapshot_files": list(result.get("snapshot_files") or []),
+        "pre_context_commands": list(result.get("pre_context_commands") or []),
+        "pre_context_command_results": dict(result.get("pre_context_command_results") or {}),
         "loaded_files": list(result.get("loaded_files") or []),
         "missing_files": list(result.get("missing_files") or []),
         "decision_reason": policy.get("decision_reason"),

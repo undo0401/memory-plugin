@@ -187,6 +187,10 @@
   color: inherit;
 }
 
+.lin-panel__input--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
 .lin-panel__textarea {
   min-height: 6.5rem;
   resize: vertical;
