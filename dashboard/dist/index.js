@@ -413,6 +413,30 @@
       }, selectedLaneName);
     }
 
+    function bulkPolicyValue(key) {
+      var list = visibleLanes();
+      if (!list.length) return false;
+      return list.every(function (item) { return !!item[key]; });
+    }
+    function bulkPolicyMixed(key) {
+      var list = visibleLanes();
+      if (!list.length) return false;
+      var enabledCount = list.filter(function (item) { return !!item[key]; }).length;
+      return enabledCount > 0 && enabledCount < list.length;
+    }
+    function setBulkInjectionPolicy(key, enabled) {
+      var payload = clone(currentConfig());
+      var visibleNames = new Set(visibleLanes().map(function (lane) { return String(lane.name); }));
+      var lanes = Array.isArray(payload.lanes) ? payload.lanes.slice() : [];
+      payload.lanes = lanes.map(function (lane) {
+        if (!visibleNames.has(String(lane.name))) return lane;
+        var next = Object.assign({}, lane);
+        next[key] = !!enabled;
+        return next;
+      });
+      persistConfig(payload, enabled ? "Injection policy enabled" : "Injection policy disabled", { view: "list" });
+    }
+
     var payload = state.payload || {};
     var form = state.form || {};
     var lanes = visibleLanes();
@@ -427,11 +451,32 @@
         ),
         h(Card, { className: "lin-panel__hero" },
           h(CardContent, { className: "lin-panel__heroContent" },
-            h("p", { className: "lin-panel__lead" }, "Memory injection の設定を管理する画面です。一覧から設定を選び、対象セッション、差し込むファイル、現在時刻やスキルなどの注入オプションを編集できます。"),
+            h("p", { className: "lin-panel__lead" }, "Memory injection の設定を管理する画面です。一覧でシステムプロンプトへ入れる共通方針を決め、個別設定では対象セッション、差し込むファイル、skills を編集できます。"),
             h(TopSummary, { summary: summary }),
             payload.config_file ? h("p", { className: "lin-panel__path" }, "config: " + payload.config_file) : null,
             state.error ? h("p", { className: "lin-panel__error" }, state.error) : null,
             state.banner ? h("p", { className: "lin-panel__banner" }, state.banner) : null
+          )
+        ),
+        h(Card, { className: "lin-panel__card lin-panel__policyCard" },
+          h(CardHeader, null, h(CardTitle, null, "System prompt injection policy")),
+          h(CardContent, { className: "lin-panel__policyGrid" },
+            h("label", { className: "lin-panel__fieldRowCheckbox" },
+              h(Checkbox, { checked: bulkPolicyValue("include_current_time"), disabled: !!state.saving || !lanes.length, onCheckedChange: function (v) { setBulkInjectionPolicy("include_current_time", !!v); } }),
+              h("span", null, "current time"),
+              bulkPolicyMixed("include_current_time") ? h(Pill, { tone: "muted" }, "mixed") : null
+            ),
+            h("label", { className: "lin-panel__fieldRowCheckbox" },
+              h(Checkbox, { checked: bulkPolicyValue("include_current_source"), disabled: !!state.saving || !lanes.length, onCheckedChange: function (v) { setBulkInjectionPolicy("include_current_source", !!v); } }),
+              h("span", null, "current source"),
+              bulkPolicyMixed("include_current_source") ? h(Pill, { tone: "muted" }, "mixed") : null
+            ),
+            h("label", { className: "lin-panel__fieldRowCheckbox" },
+              h(Checkbox, { checked: bulkPolicyValue("include_session_gap"), disabled: !!state.saving || !lanes.length, onCheckedChange: function (v) { setBulkInjectionPolicy("include_session_gap", !!v); } }),
+              h("span", null, "session gap"),
+              bulkPolicyMixed("include_session_gap") ? h(Pill, { tone: "muted" }, "mixed") : null
+            ),
+            h("p", { className: "lin-panel__hint lin-panel__policyHint" }, "この3つは現在の profile に見えている memory 設定へ一括で適用されます。個別 lane の詳細画面では編集しません。")
           )
         ),
         h("div", { className: "lin-panel__list" },
@@ -505,7 +550,7 @@
             )
           ),
           h(CardContent, { className: "lin-panel__heroContent" },
-            h("p", { className: "lin-panel__lead" }, "選択した memory 設定の詳細です。対象範囲、snapshot files、注入オプション、事前ロードする skills を編集できます。"),
+            h("p", { className: "lin-panel__lead" }, "選択した memory 設定の詳細です。対象範囲、snapshot files、事前ロードする skills を編集できます。システムプロンプト注入方針は一覧画面で一括変更します。"),
             h(TopSummary, { summary: summary }),
             h("p", { className: "lin-panel__path" }, "name: " + (form.name || "")),
             state.error ? h("p", { className: "lin-panel__error" }, state.error) : null,
@@ -524,9 +569,6 @@
                 h(NameCheckboxPicker, { id: "memory-skills", available: state.availableSkills || [], selected: form.skills || [], onChange: function (skills) { setFormValue("skills", skills); }, emptyLabel: "No skills installed for this profile." }),
                 h("p", { className: "lin-panel__hint" }, "Selected skills are loaded before this memory lane is injected — the lane sets when, the skill sets how.")
               ),
-              h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentTime, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentTime", !!v); } }), h(Label, null, "inject current time")),
-              h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeCurrentSource, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentSource", !!v); } }), h(Label, null, "inject current source")),
-              h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.includeSessionGap, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeSessionGap", !!v); } }), h(Label, null, "inject session gap")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "scope"), h(SelectField, { value: form.scopeMode || "all", onChange: function (v) { setFormValue("scopeMode", v || "all"); }, options: [
                 { value: "all", label: "全て" },
                 { value: "target", label: "対象" },

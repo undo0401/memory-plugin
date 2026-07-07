@@ -483,19 +483,21 @@ def _read_snapshot_text(raw_path: str) -> dict[str, Any]:
 
 
 def _current_time_entry() -> dict[str, Any]:
-    now = datetime.now(JST)
+    now_utc = datetime.now(timezone.utc)
+    now = now_utc.astimezone(JST)
     content = "\n".join(
         [
-            f"current_time: {now.isoformat(timespec='seconds')}",
-            "timezone: Asia/Tokyo",
-            "note: current_time is the current local time for this incoming message",
+            f"Current time: {now.isoformat(timespec='seconds')} (Asia/Tokyo)",
+            f"Reference UTC: {now_utc.isoformat(timespec='seconds')}",
+            "Timezone: Asia/Tokyo",
+            "Use this as the fresh current time for relative dates like today, tomorrow, yesterday, later, and next time.",
         ]
     )
     return {
         "path": "__current_time__",
         "content": content,
         "kind": "current_time",
-        "label": "incoming message local time",
+        "label": "current time",
         "date": now.date().isoformat(),
     }
 
@@ -629,7 +631,7 @@ def _render_injection_text(
             continue
         if item.get("kind") == "current_time":
             sections.append(
-                f"[Current local time for this incoming message: {item.get('date') or ''}]\n{content}"
+                f"[Current time: {item.get('date') or ''}]\n{content}"
             )
         elif item.get("kind") == "current_source":
             sections.append(f"[Current source: {item.get('label') or 'runtime source'}]\n{content}")
