@@ -185,7 +185,7 @@ def _matching_lanes(api: Any, config: dict[str, Any], session_key: str, source: 
     return {str(lane.get("name") or "") for lane in api._select_matching_lanes(config, session_key, source)}
 
 
-def _resolve_pre_call_memory_context(api: Any, *, session_key: str | None, source: Any, session_gap: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+def _resolve_pre_call_memory_context(api: Any, *, session_key: str | None, source: Any) -> tuple[str, dict[str, Any]]:
     """Return the full configured memory context for matching lanes.
 
     This is the override-free runtime injection path. It reuses the dashboard
@@ -194,66 +194,14 @@ def _resolve_pre_call_memory_context(api: Any, *, session_key: str | None, sourc
     """
     config = api.load_config()
     effective_session_key = api._safe_text(session_key) or api._build_session_key_from_source(source)
-    result = api.resolve_memory_injection(config, effective_session_key, source, session_gap=session_gap)
+    result = api.resolve_memory_injection(config, effective_session_key, source)
     text = str(result.get("text") or "").strip()
     return text, result
 
 
-def _session_entry_updated_at(self, api: Any, *, session_key: str | None, source: Any) -> datetime | None:
-    effective_session_key = api._safe_text(session_key) or api._build_session_key_from_source(source)
-    if not effective_session_key:
-        return None
-    try:
-        self.session_store._ensure_loaded()
-        with self.session_store._lock:
-            self.session_store._ensure_loaded_locked()
-            entry = self.session_store._entries.get(effective_session_key)
-            if entry is None:
-                return None
-            return _coerce_dt(getattr(entry, "updated_at", None))
-    except Exception:
-        logger.debug("memory tick: failed to read previous session activity", exc_info=True)
-        return None
-
-
-def _previous_activity_map(self) -> dict[str, str]:
-    mapping = getattr(self, "_memory_previous_activity_by_session", None)
-    if not isinstance(mapping, dict):
-        mapping = {}
-        self._memory_previous_activity_by_session = mapping
-    return mapping
-
-
-def _capture_previous_activity_for_event(self, api: Any, event: Any) -> str | None:
-    source = getattr(event, "source", None)
-    if source is None:
-        return None
-    session_key = api._build_session_key_from_source(source)
-    if not session_key:
-        return None
-    previous_dt = _session_entry_updated_at(self, api, session_key=session_key, source=source)
-    if previous_dt is None:
-        return session_key
-    _previous_activity_map(self)[session_key] = previous_dt.isoformat()
-    return session_key
-
-
-def _session_gap_for_pre_call(self, api: Any, *, session_key: str | None, source: Any) -> dict[str, Any]:
-    effective_session_key = api._safe_text(session_key) or api._build_session_key_from_source(source)
-    previous_activity_at = None
-    if effective_session_key:
-        previous_activity_at = _previous_activity_map(self).get(effective_session_key)
-    if not previous_activity_at:
-        previous_dt = _session_entry_updated_at(self, api, session_key=effective_session_key, source=source)
-        if previous_dt is not None:
-            previous_activity_at = previous_dt.isoformat()
-    return {"previous_activity_at": previous_activity_at}
-
-
 def _with_pre_call_memory_context(api: Any, *, runner: Any, context_prompt: Any, session_key: str | None, session_id: str | None, source: Any) -> str:
     base = str(context_prompt or "")
-    session_gap = _session_gap_for_pre_call(runner, api, session_key=session_key, source=source)
-    text, result = _resolve_pre_call_memory_context(api, session_key=session_key, source=source, session_gap=session_gap)
+    text, result = _resolve_pre_call_memory_context(api, session_key=session_key, source=source)
     if not text:
         return base
     policy = {
@@ -307,7 +255,6 @@ async def _apply_memory_tick_for_lane(self, api: Any, state: dict[str, Any], ses
     lane_state["reinject_interval_minutes"] = int(api._normalize_reinject_interval_minutes(lane.get("reinject_interval_minutes")))
     lane_state["include_current_time"] = bool(api._normalize_bool(lane.get("include_current_time"), False))
     lane_state["include_current_source"] = bool(api._normalize_bool(lane.get("include_current_source"), False))
-    lane_state["include_session_gap"] = bool(api._normalize_bool(lane.get("include_session_gap"), False))
     lane_state["active_profile"] = api._active_profile_name()
     lane_state["target_profiles"] = list(lane.get("target_profiles") or [])
     lane_state["exclude_profiles"] = list(lane.get("exclude_profiles") or [])
@@ -524,17 +471,7 @@ def patch_gateway_runner() -> None:
 
     async def patched_handle_message(self, event, *args, **kwargs):
         _ensure_memory_tick_watcher_started(self, "message")
-        captured_session_key = None
-        try:
-            api = _load_plugin_api_module()
-            captured_session_key = _capture_previous_activity_for_event(self, api, event)
-        except Exception:
-            logger.debug("memory tick: failed to capture previous activity", exc_info=True)
-        try:
-            response = await original_handle_message(self, event, *args, **kwargs)
-        finally:
-            if captured_session_key:
-                _previous_activity_map(self).pop(captured_session_key, None)
+        response = await original_handle_message(self, event, *args, **kwargs)
         if not bool(getattr(event, "internal", False)):
             _memory_tick_hook_wake(self)
         return response

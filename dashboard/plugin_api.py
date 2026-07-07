@@ -45,7 +45,6 @@ DEFAULT_LANE = {
     "skills": [],
     "include_current_time": False,
     "include_current_source": False,
-    "include_session_gap": False,
     "snapshot_files": [
         "/opt/data/state/MEMORY_EVENT_CONTEXT.md",
         "/opt/data/state/MEMORY_EMOTIONS_CONTEXT.md",
@@ -291,10 +290,6 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
     )
     normalized["include_current_source"] = _normalize_bool(
         source.get("include_current_source"),
-        False,
-    )
-    normalized["include_session_gap"] = _normalize_bool(
-        source.get("include_session_gap"),
         False,
     )
     idle_seconds = _normalize_idle_seconds(source)
@@ -549,35 +544,6 @@ def _format_elapsed_text(seconds: float) -> str:
     return " ".join(parts) if parts else "0s"
 
 
-def _session_gap_entry(previous_activity_at: Any = None) -> dict[str, Any]:
-    previous_dt = _parse_iso_datetime(previous_activity_at)
-    if previous_dt is None:
-        content = "\n".join(
-            [
-                "previous_activity_at: unknown",
-                "elapsed_since_previous_activity: unknown",
-            ]
-        )
-    else:
-        previous_local = previous_dt.astimezone(JST)
-        now = datetime.now(JST)
-        elapsed_seconds = max(0, int((now - previous_local).total_seconds()))
-        content = "\n".join(
-            [
-                f"previous_activity_at: {previous_local.isoformat(timespec='seconds')}",
-                f"elapsed_since_previous_activity: {_format_elapsed_text(elapsed_seconds)}",
-                f"elapsed_seconds: {elapsed_seconds}",
-            ]
-        )
-    return {
-        "path": "__session_gap__",
-        "content": content,
-        "kind": "session_gap",
-        "label": "previous activity",
-        "date": None,
-    }
-
-
 def _load_skills_prompt(skill_names: list[str], *, task_id: str | None = None) -> tuple[str, list[str], list[str]]:
     normalized_names = _normalize_lines(skill_names)
     if not normalized_names:
@@ -632,8 +598,6 @@ def _render_injection_text(
             )
         elif item.get("kind") == "current_source":
             sections.append(f"[Current source: {item.get('label') or 'runtime source'}]\n{content}")
-        elif item.get("kind") == "session_gap":
-            sections.append(f"[Session gap: {item.get('label') or 'previous activity'}]\n{content}")
         else:
             sections.append(f"[Memory snapshot: {item['path']}]\n{content}")
     if len(sections) <= 2:
@@ -664,9 +628,7 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
     current_time_files = [_current_time_entry()] if include_current_time else []
     include_current_source = _normalize_bool(normalized_lane.get("include_current_source"), False)
     current_source_files = [_current_source_entry({})] if include_current_source else []
-    include_session_gap = _normalize_bool(normalized_lane.get("include_session_gap"), False)
-    session_gap_files = [_session_gap_entry()] if include_session_gap else []
-    loaded_entries = current_time_files + current_source_files + session_gap_files + loaded_files
+    loaded_entries = current_time_files + current_source_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text([normalized_lane], loaded_entries, include_skills=False)
     return {
@@ -676,7 +638,6 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
         "has_preview": bool(text),
         "include_current_time": include_current_time,
         "include_current_source": include_current_source,
-        "include_session_gap": include_session_gap,
         "snapshot_files": ordered_paths,
         "loaded_files": [
             {
@@ -800,16 +761,7 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         _normalize_bool(lane.get("include_current_source"), False) for lane in matched_lanes
     )
     current_source_files = [_current_source_entry(source)] if include_current_source else []
-    include_session_gap = any(
-        _normalize_bool(lane.get("include_session_gap"), False) for lane in matched_lanes
-    )
-    session_gap_files = []
-    if include_session_gap:
-        previous_activity_at = None
-        if isinstance(session_gap, dict):
-            previous_activity_at = session_gap.get("previous_activity_at")
-        session_gap_files = [_session_gap_entry(previous_activity_at)]
-    loaded_entries = current_time_files + current_source_files + session_gap_files + loaded_files
+    loaded_entries = current_time_files + current_source_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text(matched_lanes, loaded_entries, session_id=None)
     session_aliases = sorted(_session_selector_aliases(effective_session_key, source))
@@ -841,7 +793,6 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         },
         "include_current_time": include_current_time,
         "include_current_source": include_current_source,
-        "include_session_gap": include_session_gap,
         "snapshot_files": ordered_paths,
         "loaded_files": [
             {
@@ -892,7 +843,6 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
         "lane_skills": list(result.get("lane_skills") or []),
         "include_current_time": bool(result.get("include_current_time")),
         "include_current_source": bool(result.get("include_current_source")),
-        "include_session_gap": bool(result.get("include_session_gap")),
         "snapshot_files": list(result.get("snapshot_files") or []),
         "loaded_files": list(result.get("loaded_files") or []),
         "missing_files": list(result.get("missing_files") or []),

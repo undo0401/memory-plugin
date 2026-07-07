@@ -152,7 +152,6 @@
       prompt: "",
       include_current_time: false,
       include_current_source: false,
-      include_session_gap: false,
       idle_seconds: 0,
       reinject_interval_minutes: 0,
       target_sessions: [],
@@ -222,7 +221,6 @@
             skills: Array.isArray(lane.skills) ? lane.skills.slice() : [],
             includeCurrentTime: !!lane.include_current_time,
             includeCurrentSource: !!lane.include_current_source,
-            includeSessionGap: !!lane.include_session_gap,
             scopeMode: defaultScopeMode(lane),
             targetSessionsText: ((lane.target_sessions || []).filter(function (item) { return item !== "*"; })).join("\n"),
             targetProfile: activeProfile(payload),
@@ -308,7 +306,6 @@
         skills: Array.isArray(form.skills) ? form.skills.slice() : [],
         include_current_time: !!form.includeCurrentTime,
         include_current_source: !!form.includeCurrentSource,
-        include_session_gap: !!form.includeSessionGap,
         idle_seconds: 0,
         reinject_interval_minutes: 0,
         target_sessions: useTarget ? scopeValues : [],
@@ -471,12 +468,7 @@
               h("span", null, "current source"),
               bulkPolicyMixed("include_current_source") ? h(Pill, { tone: "muted" }, "mixed") : null
             ),
-            h("label", { className: "lin-panel__fieldRowCheckbox" },
-              h(Checkbox, { checked: bulkPolicyValue("include_session_gap"), disabled: !!state.saving || !lanes.length, onCheckedChange: function (v) { setBulkInjectionPolicy("include_session_gap", !!v); } }),
-              h("span", null, "session gap"),
-              bulkPolicyMixed("include_session_gap") ? h(Pill, { tone: "muted" }, "mixed") : null
-            ),
-            h("p", { className: "lin-panel__hint lin-panel__policyHint" }, "この3つは現在の profile に見えている memory 設定へ一括で適用されます。個別 lane の詳細画面では編集しません。")
+            h("p", { className: "lin-panel__hint lin-panel__policyHint" }, "この2つは現在の profile に見えている memory 設定へ一括で適用されます。個別 lane の詳細画面では編集しません。")
           )
         ),
         h("div", { className: "lin-panel__list" },
@@ -504,7 +496,6 @@
                     h("span", null, "skills · " + ((item.skills || []).join(", ") || "(none)")),
                     h("span", null, "current time · " + (item.include_current_time ? "inject" : "skip")),
                     h("span", null, "current source · " + (item.include_current_source ? "inject" : "skip")),
-                    h("span", null, "session gap · " + (item.include_session_gap ? "inject" : "skip")),
                     h("span", null, "files · " + (files.length ? truncate(files.join(", "), 160) : "(none)"))
                   )
                 ),
@@ -530,7 +521,6 @@
       var summaryTargetProfiles = activeProfile(state.payload);
       var summaryCurrentTime = form.includeCurrentTime ? "inject" : "skip";
       var summaryCurrentSource = form.includeCurrentSource ? "inject" : "skip";
-      var summarySessionGap = form.includeSessionGap ? "inject" : "skip";
       var summaryPromptText = String(form.promptText || "").trim() || "(none)";
       var summarySkills = Array.isArray(form.skills) && form.skills.length ? form.skills.join(", ") : "(none)";
       var runtimeInfo = laneRuntime(form.name) || {};
@@ -592,7 +582,6 @@
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "skills"), h("dd", null, summarySkills)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current time"), h("dd", null, summaryCurrentTime)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current source"), h("dd", null, summaryCurrentSource)),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "session gap"), h("dd", null, summarySessionGap)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "target"), h("dd", null, summaryTargetKind + " · " + summaryTargetText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude"), h("dd", null, summaryTargetKind + " · " + summaryExcludeText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "dashboard profile"), h("dd", null, summaryTargetProfiles)),
