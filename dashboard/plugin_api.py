@@ -512,12 +512,13 @@ def _current_source_entry(source: Any) -> dict[str, Any]:
     chat_name = _safe_text(_source_get(source, "chat_name", ""))
     if chat_name:
         parts = [_safe_text(part) for part in chat_name.split(" / ") if _safe_text(part)]
-        source_label = parts[0] if parts else chat_name
+        source_label = " / ".join(parts[1:]) if len(parts) >= 2 else chat_name
     else:
         source_label = _display_channel_name(source)
+    content = f"chat_name: {source_label}"
     return {
         "path": "__current_source__",
-        "content": source_label,
+        "content": content,
         "kind": "current_source",
         "label": source_label,
         "date": None,
@@ -588,7 +589,7 @@ def _render_injection_text(
         if item.get("kind") == "current_time":
             sections.append(content)
         elif item.get("kind") == "current_source":
-            sections.append(f"Current source: {content}")
+            sections.append(content)
         else:
             sections.append(f"[Memory snapshot: {item['path']}]\n{content}")
     return "\n\n".join(sections).strip()
