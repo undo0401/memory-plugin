@@ -391,6 +391,21 @@
       payload.lanes = lanes.concat([lane]);
       persistConfig(payload, "Memory added", { view: "detail", selectedLaneName: lane.name }, lane.name);
     }
+    function deleteCurrentLane() {
+      var lanes = currentLanes();
+      if (lanes.length <= 1) {
+        setState(function (prev) { return Object.assign({}, prev, { error: "最後の memory は消せないよ", banner: "" }); });
+        return;
+      }
+      var current = currentLane();
+      if (!current) return;
+      if (typeof window !== "undefined" && window.confirm && !window.confirm("Delete memory '" + current.name + "'?")) return;
+      var payload = clone(currentConfig());
+      payload.lanes = lanes.filter(function (lane) { return String(lane.name) !== String(current.name); });
+      var nextSelected = payload.lanes[0] && payload.lanes[0].name;
+      persistConfig(payload, "Memory deleted", { view: "list", selectedLaneName: nextSelected || null }, nextSelected || null);
+    }
+
     function toggleLaneEnabled(laneName, enabled) {
       var payload = clone(currentConfig());
       var lanes = Array.isArray(payload.lanes) ? payload.lanes.slice() : [];
@@ -571,7 +586,8 @@
               h("div", { className: "lin-panel__field" }, h(Label, null, currentScopeLabel()), h(Textarea, { className: "lin-panel__textarea", disabled: String(form.scopeMode || "all") === "all", value: String(form.scopeMode || "all") === "all" ? "" : (form[currentScopeTextKey()] || ""), onChange: function (e) { setFormValue(currentScopeTextKey(), e.target.value); }, placeholder: currentScopePlaceholder() })),
               h("div", { className: "lin-panel__field" }, h(Label, null, "snapshot files"), h(Textarea, { className: "lin-panel__textarea", value: form.snapshotFilesText || "", onChange: function (e) { setFormValue("snapshotFilesText", e.target.value); }, placeholder: "/path/to/snapshot.md" })),
               h("div", { className: "lin-panel__buttonRow" },
-                h(Button, { type: "button", onClick: save }, state.saving ? "Saving..." : "Save")
+                h(Button, { type: "button", onClick: save }, state.saving ? "Saving..." : "Save"),
+                h(Button, { type: "button", onClick: deleteCurrentLane }, state.saving ? "Working..." : "Delete")
               )
             )
           ),
