@@ -1,5 +1,5 @@
 name: memory
-version: 0.1.8
+version: 0.1.9
 description: Hermes plugin for memory runtime assets and dashboard hooks; consumes configured snapshots without owning diary skills or producers.
 author: LIN
 runtime_hook:
