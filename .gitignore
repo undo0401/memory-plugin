@@ -15,3 +15,13 @@ logs/
 config/*
 !config/*.example.*
 !config/README.md
+
+# Local cache / secret / temporary noise.
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+!.env.example
+*.log
+*.tmp
+.DS_Store
