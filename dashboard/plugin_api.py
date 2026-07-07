@@ -562,6 +562,8 @@ def _render_injection_text(
     session_id: str | None = None,
     include_skills: bool = True,
 ) -> str:
+    if not matched_lanes:
+        return ""
     sections: list[str] = []
     for lane in matched_lanes:
         prompt_text = str(lane.get("prompt") or "").strip()
@@ -711,9 +713,6 @@ def resolve_memory_injection_policy(
             decision_reason = "interval_elapsed"
         else:
             decision_reason = "interval_not_elapsed"
-    elif str(result.get("text") or "").strip():
-        should_inject = True
-        decision_reason = "pre_call_current_time"
 
     return {
         "result": result,
@@ -744,11 +743,10 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
             seen_paths.add(path_text)
     file_results = [_read_snapshot_text(path_text) for path_text in ordered_paths]
     loaded_files = [item for item in file_results if item.get("content")]
-    # Current time is pre-call metadata, not lane-owned memory.  Keep lane
-    # matching for snapshots/prompts/skills, but always provide a fresh clock
-    # block so relative dates work even when no memory lane targets this session.
-    include_current_time = True
-    current_time_files = [_current_time_entry()]
+    include_current_time = any(
+        _normalize_bool(lane.get("include_current_time"), False) for lane in matched_lanes
+    )
+    current_time_files = [_current_time_entry()] if include_current_time else []
     include_current_source = any(
         _normalize_bool(lane.get("include_current_source"), False) for lane in matched_lanes
     )
@@ -759,8 +757,7 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
     session_aliases = sorted(_session_selector_aliases(effective_session_key, source))
     active_profile = _active_profile_name()
     return {
-        "matched": bool(matched_lanes),
-        "metadata_only": bool(text) and not bool(matched_lanes),
+        "matched": bool(text),
         "session_key": effective_session_key,
         "active_profile": active_profile,
         "lane_names": [str(lane.get("name") or "") for lane in matched_lanes],
@@ -807,8 +804,7 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
     state = load_state()
     now = now_iso()
     state["last_resolved_at"] = now
-    has_injected_text = bool(str(result.get("text") or "").strip())
-    if injected and has_injected_text:
+    if injected and result.get("matched"):
         state["last_injected_at"] = now
     session_key = _safe_text(policy.get("session_key") or result.get("session_key") or "")
     if session_key:
@@ -820,7 +816,7 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
         session_runtime["reinject_interval_minutes"] = int(policy.get("reinject_interval_minutes") or 0)
         if policy.get("session_id"):
             session_runtime["session_id"] = policy.get("session_id")
-        if injected and has_injected_text:
+        if injected and result.get("matched"):
             session_runtime["last_injected_at"] = now
             if policy.get("decision_reason") == "pre_call_memory":
                 session_runtime["last_injected_mode"] = "pre_call_memory"

@@ -204,14 +204,13 @@ def _with_pre_call_memory_context(api: Any, *, runner: Any, context_prompt: Any,
     text, result = _resolve_pre_call_memory_context(api, session_key=session_key, source=source)
     if not text:
         return base
-    decision_reason = "pre_call_memory" if result.get("matched") else "pre_call_current_time"
     policy = {
         "result": result,
         "session_key": result.get("session_key") or session_key or "",
         "session_id": session_id or "",
         "is_new_session": False,
         "should_inject": True,
-        "decision_reason": decision_reason,
+        "decision_reason": "pre_call_memory",
         "reinject_interval_minutes": 0,
         "matched_reinject_intervals": [],
         "last_injected_at": None,
