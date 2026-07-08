@@ -16,7 +16,7 @@
 現行では sidecar project を起こさず、責務をこう分ける。
 
 - session-open injection の selector / file loading / text assembly
-  - `memory` dashboard/API surface (`/opt/data/plugins/oc-memory/dashboard/plugin_api.py`)
+  - `memory` dashboard/API surface (`/opt/data/plugins/memory/dashboard/plugin_api.py`)
 - snapshot 生成
   - memory plugin の責務外。producer 側の diary / event-context pipeline が担う
 - first-turn への prepend

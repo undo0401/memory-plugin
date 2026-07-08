@@ -23,7 +23,7 @@ _PLUGIN_API_MODULE_NAME = "hermes_plugins.memory.dashboard.plugin_api"
 
 def _plugin_root() -> Path:
     plugins_root = get_hermes_home() / "plugins"
-    renamed_root = plugins_root / "oc-memory"
+    renamed_root = plugins_root / "memory"
     if renamed_root.exists():
         return renamed_root
     return plugins_root / _PLUGIN_NAME
