@@ -594,8 +594,7 @@
                 ),
                 h("div", { className: "lin-panel__field" },
                   h(Label, null, "timeout"),
-                  h(Input, { type: "number", min: "1", step: "1", className: "lin-panel__input lin-panel__input--timeout", value: form.preContextTimeoutSeconds || "", onChange: function (e) { setFormValue("preContextTimeoutSeconds", e.target.value); } }),
-                  h("p", { className: "lin-panel__hint" }, "pre-context command の最大実行時間。タイムアウトしたら context には入れず trace だけ残すよ。")
+                  h(Input, { type: "number", min: "1", step: "1", className: "lin-panel__input lin-panel__input--timeout", value: form.preContextTimeoutSeconds || "", onChange: function (e) { setFormValue("preContextTimeoutSeconds", e.target.value); } })
                 )
               ),
               h("div", { className: "lin-panel__buttonRow" },
