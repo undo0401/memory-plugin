@@ -42,7 +42,7 @@ def register(ctx) -> None:
         toolset="memory",
         schema={
             "name": "memory_control",
-            "description": "Internal control surface for the memory plugin. Reads/saves memory lane config and resolves memory injection policy via the tool registry.",
+            "description": 'Control memory.',
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -64,7 +64,7 @@ def register(ctx) -> None:
             },
         },
         handler=_control_handler,
-        description="Memory plugin control surface.",
+        description='Control memory.',
         emoji="🫧",
     )
 
@@ -73,10 +73,10 @@ def register(ctx) -> None:
         toolset="memory",
         schema={
             "name": "memory_health",
-            "description": "Return Memory plugin-owned health status for System Desk.",
+            "description": 'Check Plugin.',
             "parameters": {"type": "object", "properties": {}},
         },
         handler=lambda args, **kwargs: _control_handler({"action": "health"}, **kwargs),
-        description="Memory health surface.",
+        description='Check memory health.',
         emoji="🫧",
     )
