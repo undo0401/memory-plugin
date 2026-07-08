@@ -167,7 +167,11 @@
 }
 
 .lin-panel__fieldGroup--two {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: minmax(220px, 1fr) minmax(7.5rem, 9rem);
+}
+
+.lin-panel__input--timeout {
+  max-width: 9rem;
 }
 
 .lin-panel__fieldRowCheckbox {
@@ -243,6 +247,10 @@
 }
 
 @media (max-width: 720px) {
+  .lin-panel__fieldGroup--two {
+    grid-template-columns: 1fr;
+  }
+
   .lin-panel__titleRow,
   .lin-panel__laneBody,
   .lin-panel__laneTitleRow {
