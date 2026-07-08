@@ -79,7 +79,11 @@ def now_iso() -> str:
 
 
 def plugin_root() -> Path:
-    return get_hermes_home() / "plugins" / PLUGIN_NAME
+    plugins_root = get_hermes_home() / "plugins"
+    renamed_root = plugins_root / "oc-memory"
+    if renamed_root.exists():
+        return renamed_root
+    return plugins_root / PLUGIN_NAME
 
 
 def config_path() -> Path:
