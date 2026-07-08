@@ -167,11 +167,11 @@
 }
 
 .lin-panel__fieldGroup--two {
-  grid-template-columns: minmax(220px, 1fr) minmax(7.5rem, 9rem);
+  grid-template-columns: minmax(220px, 1fr) minmax(5.5rem, 6rem);
 }
 
 .lin-panel__input--timeout {
-  max-width: 9rem;
+  max-width: 6rem;
 }
 
 .lin-panel__fieldRowCheckbox {
