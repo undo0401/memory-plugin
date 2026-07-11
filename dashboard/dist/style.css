@@ -170,10 +170,6 @@
   grid-template-columns: minmax(220px, 1fr) minmax(5.5rem, 6rem);
 }
 
-.lin-panel__input--timeout {
-  max-width: 6rem;
-}
-
 .lin-panel__fieldRowCheckbox {
   display: flex;
   align-items: center;

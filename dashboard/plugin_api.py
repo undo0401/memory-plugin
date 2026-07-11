@@ -5,7 +5,7 @@ import importlib
 import json
 import logging
 import re
-import subprocess
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -46,8 +46,7 @@ DEFAULT_LANE = {
     "skills": [],
     "include_current_time": False,
     "include_current_source": False,
-    "pre_context_command": "",
-    "pre_context_timeout_seconds": 8,
+    "active_memory_directory": "",
     "snapshot_files": [
         "state/MEMORY_EVENT_CONTEXT.md",
         "state/MEMORY_EMOTIONS_CONTEXT.md",
@@ -68,6 +67,7 @@ DEFAULT_STATE = {
     "last_resolution": None,
     "session_runtime": {},
 }
+_ACTIVE_MEMORY_CACHE: dict[str, dict[str, Any]] = {}
 SNAPSHOT_PATH_ROOT = Path("/opt/data")
 _DATE_TOKEN_RE = re.compile(
     r"\{(?P<name>TODAY|TOMORROW|YESTERDAY|YESTADAY)(?P<offset>[+-]\d+)?\}", re.IGNORECASE
@@ -354,11 +354,7 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
     normalized["exclude_sessions"] = _normalize_lines(list(source.get("exclude_sessions") or []))
     normalized["exclude_profiles"] = _normalize_lines(list(source.get("exclude_profiles") or []))
     normalized["skills"] = _normalize_lines(list(source.get("skills") or []))
-    normalized["pre_context_command"] = str(source.get("pre_context_command") or "").strip()
-    normalized["pre_context_timeout_seconds"] = _normalize_positive_seconds(
-        source.get("pre_context_timeout_seconds"),
-        DEFAULT_LANE.get("pre_context_timeout_seconds", 8),
-    )
+    normalized["active_memory_directory"] = str(source.get("active_memory_directory") or "").strip()
     normalized["snapshot_files"] = _normalize_lines(list(source.get("snapshot_files") or []))
     return normalized
 
@@ -586,109 +582,112 @@ def _current_source_entry(source: Any) -> dict[str, Any]:
     }
 
 
-def _pre_context_command_payload(lane: dict[str, Any], *, session_key: str, session_id: str | None, source: Any) -> dict[str, Any]:
-    now = datetime.now(JST)
-    return {
-        "lane_name": str(lane.get("name") or ""),
-        "session_key": _safe_text(session_key),
-        "session_id": _safe_text(session_id or ""),
-        "profile": _active_profile_name(),
-        "platform": _platform_text(source),
-        "chat_id": _safe_text(_source_get(source, "chat_id", "")),
-        "thread_id": _safe_text(_source_get(source, "thread_id", "")),
-        "parent_chat_id": _safe_text(_source_get(source, "parent_chat_id", "")),
-        "chat_name": _safe_text(_source_get(source, "chat_name", "")),
-        "current_time": now.isoformat(timespec="seconds"),
-        "timezone": "Asia/Tokyo",
-    }
+def _active_memory_units(text: str) -> set[str]:
+    normalized = re.sub(r"\s+", "", str(text or "").casefold())
+    normalized = re.sub(r"[^0-9a-z\u3040-\u30ff\u3400-\u9fff]+", "", normalized)
+    if not normalized:
+        return set()
+    if len(normalized) < 3:
+        units = {normalized}
+    else:
+        units = {normalized[index:index + 3] for index in range(len(normalized) - 2)}
+    units.update(re.findall(r"[0-9a-z]{3,}|[\u3040-\u30ff\u3400-\u9fff]{3,}", str(text or "").casefold()))
+    return units
 
 
-def _coerce_pre_context_stdout(stdout: str, *, fallback_title: str) -> tuple[str, str]:
-    text = str(stdout or "").strip()
-    if not text:
-        return fallback_title, ""
-    try:
-        decoded = json.loads(text)
-    except json.JSONDecodeError:
-        return fallback_title, text
-    if not isinstance(decoded, dict):
-        return fallback_title, text
-    title = _safe_text(decoded.get("title")) or fallback_title
-    context = _safe_text(decoded.get("context"))
-    if context:
-        return title, context
-    items = decoded.get("items")
-    if isinstance(items, list) and items:
-        rendered = json.dumps(items, ensure_ascii=False, indent=2)
-        return title, rendered
-    if decoded.get("ok") is False:
-        reason = _safe_text(decoded.get("error") or decoded.get("reason") or "command returned ok=false")
-        return title, f"(skipped: {reason})"
-    return title, text
+def _active_memory_root(value: str) -> Path | None:
+    notes_root = (get_hermes_home() / "workspace" / "notes").resolve()
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return None
+    candidate = (get_hermes_home() / path).resolve()
+    if candidate != notes_root and notes_root not in candidate.parents:
+        return None
+    return candidate
 
 
-def run_pre_context_commands(lanes: list[dict[str, Any]], *, session_key: str, source: Any, session_id: str | None = None) -> dict[str, Any]:
+def _active_memory_records(root: Path) -> list[dict[str, Any]]:
+    paths = sorted([*root.rglob("*.md"), *root.rglob("*.txt")], key=lambda item: str(item))[:500]
+    signature: list[tuple[str, int, int]] = []
+    for path in paths:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        signature.append((str(path), stat.st_mtime_ns, stat.st_size))
+    cache_key = str(root.resolve())
+    cached = _ACTIVE_MEMORY_CACHE.get(cache_key)
+    if cached and cached.get("signature") == signature:
+        return list(cached.get("records") or [])
+    records: list[dict[str, Any]] = []
+    for path_text, _mtime_ns, _size in signature:
+        path = Path(path_text)
+        try:
+            text = path.read_text(encoding="utf-8")[:120000]
+        except (OSError, UnicodeError):
+            continue
+        records.append({
+            "title": path.stem,
+            "path": path_text,
+            "units": _active_memory_units(f"{path.stem}\n{text}"),
+            "excerpt": re.sub(r"\s+", " ", text).strip()[:700],
+        })
+    _ACTIVE_MEMORY_CACHE[cache_key] = {"signature": signature, "records": records}
+    return records
+
+
+def run_active_memory_retrieval(lanes: list[dict[str, Any]], *, query: str) -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    selected: list[dict[str, Any]] = []
+    query_units = _active_memory_units(query)
+    if not query_units:
+        return {"entries": [], "selected": [], "errors": []}
     for lane in lanes:
-        command = _safe_text(lane.get("pre_context_command"))
-        if not command:
+        directory = _safe_text(lane.get("active_memory_directory"))
+        if not directory:
             continue
         lane_name = str(lane.get("name") or "unknown")
-        timeout_seconds = _normalize_positive_seconds(lane.get("pre_context_timeout_seconds"), 8)
-        payload = _pre_context_command_payload(lane, session_key=session_key, session_id=session_id, source=source)
-        try:
-            completed = subprocess.run(
-                command,
-                input=json.dumps(payload, ensure_ascii=False),
-                text=True,
-                capture_output=True,
-                cwd=str(plugin_root()),
-                shell=True,
-                timeout=timeout_seconds,
-            )
-        except subprocess.TimeoutExpired:
-            errors.append({"lane_name": lane_name, "command": command, "timeout_seconds": timeout_seconds, "error": "timeout"})
+        root = _active_memory_root(directory)
+        if root is None:
+            errors.append({"lane_name": lane_name, "directory": directory, "error": "directory_outside_notes_root"})
             continue
-        except Exception as exc:  # pragma: no cover - defensive runtime path
-            errors.append({"lane_name": lane_name, "command": command, "timeout_seconds": timeout_seconds, "error": str(exc)})
+        if not root.exists() or not root.is_dir():
+            errors.append({"lane_name": lane_name, "directory": str(root), "error": "directory_missing"})
             continue
-        stdout = str(completed.stdout or "").strip()
-        stderr = str(completed.stderr or "").strip()
-        if completed.returncode != 0:
-            errors.append({
-                "lane_name": lane_name,
-                "command": command,
-                "timeout_seconds": timeout_seconds,
-                "exit_code": int(completed.returncode),
-                "stderr": stderr[-1000:],
-                "stdout": stdout[-1000:],
-                "error": "nonzero_exit",
-            })
+        candidates: list[dict[str, Any]] = []
+        for record in _active_memory_records(root):
+            overlap = query_units & set(record.get("units") or set())
+            score = len(overlap) / max(1, len(query_units))
+            if score < 0.08 or len(overlap) < 2:
+                continue
+            candidates.append({"title": record["title"], "path": record["path"], "score": round(score, 4), "excerpt": record["excerpt"]})
+        lane_selected = sorted(candidates, key=lambda item: (-float(item["score"]), str(item["path"])))[:3]
+        if not lane_selected:
             continue
-        title, context = _coerce_pre_context_stdout(stdout, fallback_title=f"pre-context command: {lane_name}")
-        if not context:
-            continue
-        if len(context) > 6000:
-            context = context[:5999].rstrip() + "…"
+        selected.extend({**item, "lane_name": lane_name} for item in lane_selected)
+        lines = ["[Active memory]", "Use as soft context, not source of truth."]
+        for item in lane_selected:
+            lines.extend([f"- {item['title']} ({item['path']})", f"  relevance={item['score']}", f"  excerpt={item['excerpt']}"])
+        lines.append("[/Active memory]")
+        context = "\n".join(lines)
         entries.append({
-            "path": f"__pre_context_command__:{lane_name}",
-            "content": f"[Pre-context command: {title}]\n{context}",
-            "kind": "pre_context_command",
-            "label": title,
+            "path": f"__active_memory__:{lane_name}",
+            "content": context,
+            "kind": "active_memory",
+            "label": f"Active memory: {lane_name}",
             "date": None,
-            "command": command,
-            "timeout_seconds": timeout_seconds,
+            "directory": str(root),
         })
-    return {"entries": entries, "errors": errors}
+    return {"entries": entries, "selected": selected, "errors": errors}
 
 
-def append_pre_context_command_results(result: dict[str, Any], command_result: dict[str, Any]) -> dict[str, Any]:
+def append_active_memory_results(result: dict[str, Any], retrieval: dict[str, Any]) -> dict[str, Any]:
     next_result = dict(result or {})
-    entries = list(command_result.get("entries") or [])
-    errors = list(command_result.get("errors") or [])
+    entries = list(retrieval.get("entries") or [])
+    errors = list(retrieval.get("errors") or [])
     if entries:
-        addition = _render_injection_text(list(next_result.get("lanes") or []), entries, include_skills=False)
+        addition = "\n\n".join(_safe_text(item.get("content")) for item in entries if _safe_text(item.get("content")))
         if addition:
             base = _safe_text(next_result.get("text"))
             next_result["text"] = (base + "\n\n" + addition).strip() if base else addition
@@ -697,24 +696,21 @@ def append_pre_context_command_results(result: dict[str, Any], command_result: d
             {
                 "path": item.get("path"),
                 "chars": len(str(item.get("content") or "")),
-                "kind": str(item.get("kind") or "pre_context_command"),
+                "kind": str(item.get("kind") or "active_memory"),
                 "label": item.get("label"),
                 "date": item.get("date"),
             }
             for item in entries
         )
         next_result["loaded_files"] = loaded
-    next_result["pre_context_command_results"] = {
-        "ran": len(entries) + len(errors),
-        "loaded": [
-            {"lane_name": str(item.get("path", "")).split(":", 1)[-1], "label": item.get("label"), "chars": len(str(item.get("content") or ""))}
-            for item in entries
-        ],
+    next_result["active_memory_results"] = {
+        "selected_count": len(list(retrieval.get("selected") or [])),
+        "selected": list(retrieval.get("selected") or []),
         "errors": errors,
     }
     if errors:
         missing = list(next_result.get("missing_files") or [])
-        missing.extend({"path": f"__pre_context_command__:{err.get('lane_name')}", "error": err.get("error")} for err in errors)
+        missing.extend({"path": f"__active_memory__:{err.get('lane_name')}", "error": err.get("error")} for err in errors)
         next_result["missing_files"] = missing
     next_result["matched"] = bool(_safe_text(next_result.get("text")) or next_result.get("lane_names"))
     return next_result
@@ -816,9 +812,7 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
     loaded_entries = current_time_files + current_source_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text([normalized_lane], loaded_entries, include_skills=False)
-    pre_context_command = _safe_text(normalized_lane.get("pre_context_command"))
-    if pre_context_command and not text:
-        text = f"[Pre-context command configured: {normalized_lane.get('name') or 'memory'}]\n(command output is only executed in the pre-call runtime path)"
+    active_memory_directory = _safe_text(normalized_lane.get("active_memory_directory"))
     return {
         "lane_name": str(normalized_lane.get("name") or ""),
         "text": text,
@@ -827,13 +821,7 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
         "include_current_time": include_current_time,
         "include_current_source": include_current_source,
         "snapshot_files": ordered_paths,
-        "pre_context_commands": [
-            {
-                "lane_name": str(normalized_lane.get("name") or ""),
-                "command": pre_context_command,
-                "timeout_seconds": int(normalized_lane.get("pre_context_timeout_seconds") or 8),
-            }
-        ] if pre_context_command else [],
+        "active_memory_directory": active_memory_directory,
         "loaded_files": [
             {
                 "path": item["path"],
@@ -845,8 +833,7 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
             for item in loaded_entries
         ],
         "missing_files": [{"path": item["path"], "error": item.get("error")} for item in missing_files],
-        "pre_context_command": pre_context_command,
-        "pre_context_timeout_seconds": int(normalized_lane.get("pre_context_timeout_seconds") or 8),
+
     }
 
 
@@ -963,19 +950,15 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
     loaded_entries = current_time_files + current_source_files + loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text(matched_lanes, loaded_entries, session_id=None)
-    pre_context_commands = [
-        {
-            "lane_name": str(lane.get("name") or ""),
-            "command": _safe_text(lane.get("pre_context_command")),
-            "timeout_seconds": int(lane.get("pre_context_timeout_seconds") or 8),
-        }
+    active_memory_directories = [
+        {"lane_name": str(lane.get("name") or ""), "directory": _safe_text(lane.get("active_memory_directory"))}
         for lane in matched_lanes
-        if _safe_text(lane.get("pre_context_command"))
+        if _safe_text(lane.get("active_memory_directory"))
     ]
     session_aliases = sorted(_session_selector_aliases(effective_session_key, source))
     active_profile = _active_profile_name()
     return {
-        "matched": bool(text or pre_context_commands),
+        "matched": bool(text or active_memory_directories),
         "session_key": effective_session_key,
         "active_profile": active_profile,
         "lane_names": [str(lane.get("name") or "") for lane in matched_lanes],
@@ -1002,7 +985,7 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         "include_current_time": include_current_time,
         "include_current_source": include_current_source,
         "snapshot_files": ordered_paths,
-        "pre_context_commands": pre_context_commands,
+        "active_memory_directories": active_memory_directories,
         "loaded_files": [
             {
                 "path": item["path"],
@@ -1053,8 +1036,8 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
         "include_current_time": bool(result.get("include_current_time")),
         "include_current_source": bool(result.get("include_current_source")),
         "snapshot_files": list(result.get("snapshot_files") or []),
-        "pre_context_commands": list(result.get("pre_context_commands") or []),
-        "pre_context_command_results": dict(result.get("pre_context_command_results") or {}),
+        "active_memory_directories": list(result.get("active_memory_directories") or []),
+        "active_memory_results": dict(result.get("active_memory_results") or {}),
         "loaded_files": list(result.get("loaded_files") or []),
         "missing_files": list(result.get("missing_files") or []),
         "decision_reason": policy.get("decision_reason"),

@@ -181,8 +181,7 @@
       exclude_profiles: [],
       skills: [],
       snapshot_files: [],
-      pre_context_command: "",
-      pre_context_timeout_seconds: 8
+      active_memory_directory: ""
     };
   }
   function defaultScopeMode(lane) {
@@ -249,8 +248,7 @@
             targetProfile: activeProfile(payload),
             excludeSessionsText: ((lane.exclude_sessions || [])).join("\n"),
             snapshotFilesText: ((lane.snapshot_files || [])).join("\n"),
-            preContextCommand: String(lane.pre_context_command || ""),
-            preContextTimeoutSeconds: String(lane.pre_context_timeout_seconds || 8)
+            activeMemoryDirectory: String(lane.active_memory_directory || "")
           }
         });
       });
@@ -338,8 +336,7 @@
         exclude_sessions: useExclude ? scopeValues : [],
         exclude_profiles: [],
         snapshot_files: splitLines(form.snapshotFilesText),
-        pre_context_command: String(form.preContextCommand || "").trim(),
-        pre_context_timeout_seconds: Math.max(1, Number(form.preContextTimeoutSeconds || 8) || 8)
+        active_memory_directory: String(form.activeMemoryDirectory || "").trim()
       };
     }
     function buildConfigPayloadFromSelectedLane() {
@@ -495,7 +492,7 @@
                     h("span", null, "current time · " + (item.include_current_time ? "inject" : "skip")),
                     h("span", null, "current source · " + (item.include_current_source ? "inject" : "skip")),
                     h("span", null, "files · " + (files.length ? truncate(files.join(", "), 160) : "(none)")),
-                    h("span", null, "pre command · " + (item.pre_context_command ? ("set · " + String(item.pre_context_timeout_seconds || 8) + "s") : "(none)"))
+                    h("span", null, "active memory · " + (item.active_memory_directory || "(none)"))
                   )
                 ),
                 h("div", { className: "lin-panel__laneActions" },
@@ -522,7 +519,7 @@
       var summaryCurrentSource = form.includeCurrentSource ? "inject" : "skip";
       var summaryTiming = timingSummary(form.idleSeconds || 0);
       var summarySkills = Array.isArray(form.skills) && form.skills.length ? form.skills.join(", ") : "(none)";
-      var summaryPreCommand = String(form.preContextCommand || "").trim();
+      var summaryActiveMemoryDirectory = String(form.activeMemoryDirectory || "").trim();
       var runtimeInfo = laneRuntime(form.name) || {};
       var previewInfo = lanePreview(form.name) || {};
       var summary = topSummary(payload, lanes);
@@ -586,16 +583,10 @@
               ] })),
               h("div", { className: "lin-panel__field" }, h(Label, null, currentScopeLabel()), h(Textarea, { className: "lin-panel__textarea", disabled: String(form.scopeMode || "all") === "all", value: String(form.scopeMode || "all") === "all" ? "" : (form[currentScopeTextKey()] || ""), onChange: function (e) { setFormValue(currentScopeTextKey(), e.target.value); }, placeholder: currentScopePlaceholder() })),
               h("div", { className: "lin-panel__field" }, h(Label, null, "snapshot files"), h(Textarea, { className: "lin-panel__textarea", value: form.snapshotFilesText || "", onChange: function (e) { setFormValue("snapshotFilesText", e.target.value); }, placeholder: "state/STATUS.md\nworkspace/memory/{TODAY}.md" }), h("p", { className: "lin-panel__hint" }, "Relative paths resolve under /opt/data. Date tokens: {TODAY}, {TOMORROW}, {TODAY-1}, {YESTERDAY}, {YESTADAY}." )),
-              h("div", { className: "lin-panel__fieldGroup lin-panel__fieldGroup--two" },
-                h("div", { className: "lin-panel__field" },
-                  h(Label, null, "pre-context command"),
-                  h(Input, { className: "lin-panel__input lin-panel__input--mono", value: form.preContextCommand || "", onChange: function (e) { setFormValue("preContextCommand", e.target.value); }, placeholder: "optional command before reply" }),
-                  h("p", { className: "lin-panel__hint" }, "空なら実行しないよ。返答前に stdin へ source metadata JSON を渡して、stdout を memory context に積む。")
-                ),
-                h("div", { className: "lin-panel__field" },
-                  h(Label, null, "timeout"),
-                  h(Input, { type: "number", min: "1", step: "1", className: "lin-panel__input lin-panel__input--timeout", value: form.preContextTimeoutSeconds || "", onChange: function (e) { setFormValue("preContextTimeoutSeconds", e.target.value); } })
-                )
+              h("div", { className: "lin-panel__field" },
+                h(Label, null, "active memory directory"),
+                h(Input, { className: "lin-panel__input lin-panel__input--mono", value: form.activeMemoryDirectory || "", onChange: function (e) { setFormValue("activeMemoryDirectory", e.target.value); }, placeholder: "workspace/notes" }),
+                h("p", { className: "lin-panel__hint" }, "返答前に現在の発言でこのディレクトリを検索し、関連する Markdown / text の短い抜粋を最大3件だけ積むよ。相対pathは /opt/data 基準。")
               ),
               h("div", { className: "lin-panel__buttonRow" },
                 h(Button, { type: "button", onClick: save }, state.saving ? "Saving..." : "Save"),
@@ -619,7 +610,7 @@
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude"), h("dd", null, summaryTargetKind + " · " + summaryExcludeText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "dashboard profile"), h("dd", null, summaryTargetProfiles)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "files"), h("dd", null, splitLines(form.snapshotFilesText).join(", ") || "(none)")),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "pre command"), h("dd", null, summaryPreCommand ? (truncate(summaryPreCommand, 120) + " · " + String(form.preContextTimeoutSeconds || 8) + "s") : "(none)"))
+                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "active memory"), h("dd", null, summaryActiveMemoryDirectory || "(none)"))
               ),
               h("div", { className: "lin-panel__summary" },
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "preview"), h("dd", null, previewInfo.has_preview ? "ready" : "(none)")),

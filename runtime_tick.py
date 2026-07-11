@@ -211,7 +211,7 @@ def _resolve_pre_call_memory_policy(
     )
 
 
-def _with_pre_call_memory_context(api: Any, *, runner: Any, context_prompt: Any, session_key: str | None, session_id: str | None, source: Any) -> str:
+def _with_pre_call_memory_context(api: Any, *, runner: Any, message: Any, context_prompt: Any, session_key: str | None, session_id: str | None, source: Any) -> str:
     base = str(context_prompt or "")
     try:
         policy = _resolve_pre_call_memory_policy(api, session_key=session_key, session_id=session_id, source=source)
@@ -222,17 +222,15 @@ def _with_pre_call_memory_context(api: Any, *, runner: Any, context_prompt: Any,
     should_inject = bool(policy.get("should_inject")) and bool(result.get("matched"))
     if should_inject:
         try:
-            command_result = api.run_pre_context_commands(
+            active_memory_result = api.run_active_memory_retrieval(
                 list(result.get("lanes") or []),
-                session_key=str(result.get("session_key") or session_key or ""),
-                session_id=session_id or "",
-                source=source,
+                query=str(message or ""),
             )
-            result = api.append_pre_context_command_results(result, command_result)
+            result = api.append_active_memory_results(result, active_memory_result)
             policy = dict(policy)
             policy["result"] = result
         except Exception:
-            logger.debug("memory tick: failed to run pre-context command", exc_info=True)
+            logger.debug("memory tick: failed to retrieve active memory", exc_info=True)
     text = str(result.get("text") or "").strip()
     should_inject = should_inject and bool(text)
     try:
@@ -517,6 +515,7 @@ def patch_gateway_runner() -> None:
                 next_args[1] = _with_pre_call_memory_context(
                     api,
                     runner=self,
+                    message=next_args[0],
                     context_prompt=next_args[1],
                     session_key=str(session_key or ""),
                     session_id=session_id,
@@ -529,6 +528,7 @@ def patch_gateway_runner() -> None:
                     kwargs["context_prompt"] = _with_pre_call_memory_context(
                         api,
                         runner=self,
+                        message=kwargs.get("message") or kwargs.get("prompt") or "",
                         context_prompt=kwargs.get("context_prompt"),
                         session_key=str(kwargs.get("session_key") or ""),
                         session_id=str(kwargs.get("session_id") or ""),
