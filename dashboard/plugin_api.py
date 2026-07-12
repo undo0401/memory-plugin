@@ -4,7 +4,10 @@ import fnmatch
 import importlib
 import json
 import logging
+import math
 import re
+
+from collections import Counter
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -582,17 +585,24 @@ def _current_source_entry(source: Any) -> dict[str, Any]:
     }
 
 
-def _active_memory_units(text: str) -> set[str]:
-    normalized = re.sub(r"\s+", "", str(text or "").casefold())
-    normalized = re.sub(r"[^0-9a-z\u3040-\u30ff\u3400-\u9fff]+", "", normalized)
-    if not normalized:
-        return set()
-    if len(normalized) < 3:
-        units = {normalized}
-    else:
-        units = {normalized[index:index + 3] for index in range(len(normalized) - 2)}
-    units.update(re.findall(r"[0-9a-z]{3,}|[\u3040-\u30ff\u3400-\u9fff]{3,}", str(text or "").casefold()))
-    return units
+_HIRAGANA_STOPWORDS = frozenset({
+    "ある", "いる", "する", "した", "して", "です", "ます", "ない", "なる", "ので", "から", "まで", "より",
+    "ここ", "これ", "それ", "あれ", "この", "その", "あの", "もの", "こと", "ため", "よう", "ほう",
+})
+
+
+def _active_memory_terms(text: str, *, expand_kanji: bool = False) -> list[str]:
+    normalized = str(text or "").casefold()
+    terms: list[str] = []
+    for match in re.finditer(r"[0-9a-z][0-9a-z._+-]{2,}|[\u30a0-\u30ffー]{2,}|[\u3400-\u9fff]{2,}|[\u3040-\u309f]{2,}", normalized):
+        term = match.group(0)
+        if "\u3040" <= term[0] <= "\u309f" and (len(term) > 6 or term in _HIRAGANA_STOPWORDS):
+            continue
+        terms.append(term)
+        if expand_kanji and "\u3400" <= term[0] <= "\u9fff":
+            for width in range(2, min(4, len(term)) + 1):
+                terms.extend(term[index:index + width] for index in range(len(term) - width + 1))
+    return terms
 
 
 def _active_memory_root(value: str) -> Path | None:
@@ -629,7 +639,7 @@ def _active_memory_records(root: Path) -> list[dict[str, Any]]:
         records.append({
             "title": path.stem,
             "path": path_text,
-            "units": _active_memory_units(f"{path.stem}\n{text}"),
+            "terms": Counter(_active_memory_terms(f"{path.stem}\n{text}", expand_kanji=True)),
             "excerpt": re.sub(r"\s+", " ", text).strip()[:700],
         })
     _ACTIVE_MEMORY_CACHE[cache_key] = {"signature": signature, "records": records}
@@ -640,8 +650,8 @@ def run_active_memory_retrieval(lanes: list[dict[str, Any]], *, query: str) -> d
     entries: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     selected: list[dict[str, Any]] = []
-    query_units = _active_memory_units(query)
-    if not query_units:
+    query_terms = set(_active_memory_terms(query))
+    if not query_terms:
         return {"entries": [], "selected": [], "errors": []}
     for lane in lanes:
         directory = _safe_text(lane.get("active_memory_directory"))
@@ -655,12 +665,26 @@ def run_active_memory_retrieval(lanes: list[dict[str, Any]], *, query: str) -> d
         if not root.exists() or not root.is_dir():
             errors.append({"lane_name": lane_name, "directory": str(root), "error": "directory_missing"})
             continue
+        records = _active_memory_records(root)
+        document_frequency: Counter[str] = Counter()
+        for record in records:
+            document_frequency.update(set(record.get("terms") or {}))
+        average_length = sum(sum((record.get("terms") or {}).values()) for record in records) / max(1, len(records))
         candidates: list[dict[str, Any]] = []
-        for record in _active_memory_records(root):
-            overlap = query_units & set(record.get("units") or set())
-            score = len(overlap) / max(1, len(query_units))
-            if score < 0.08 or len(overlap) < 2:
+        for record in records:
+            term_counts: Counter[str] = record.get("terms") or Counter()
+            matched_terms = query_terms & set(term_counts)
+            if not matched_terms:
                 continue
+            if len(matched_terms) < 2 and len(query_terms) > 1:
+                continue
+            document_length = sum(term_counts.values())
+            score = 0.0
+            for term in matched_terms:
+                frequency = term_counts[term]
+                inverse_frequency = math.log(1 + (len(records) - document_frequency[term] + 0.5) / (document_frequency[term] + 0.5))
+                denominator = frequency + 1.2 * (1 - 0.75 + 0.75 * document_length / max(1, average_length))
+                score += inverse_frequency * frequency * 2.2 / denominator
             candidates.append({"title": record["title"], "path": record["path"], "score": round(score, 4), "excerpt": record["excerpt"]})
         lane_selected = sorted(candidates, key=lambda item: (-float(item["score"]), str(item["path"])))[:3]
         if not lane_selected:

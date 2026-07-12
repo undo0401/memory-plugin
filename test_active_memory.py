@@ -86,6 +86,77 @@ def test_active_memory_retrieval_is_empty_for_blank_query_or_missing_directory(t
     assert result["errors"][0]["error"] == "directory_missing"
 
 
+def test_active_memory_ignores_generic_japanese_phrase_overlap(tmp_path: Path):
+    notes = tmp_path / "workspace" / "notes"
+    notes.mkdir(parents=True)
+    original_home = api.get_hermes_home
+    setattr(api, "get_hermes_home", lambda: tmp_path)
+    (notes / "generic.md").write_text(
+        "# 雑記\n\nこれは発動する感じではないでいいんだよね。\n",
+        encoding="utf-8",
+    )
+    (notes / "restart.md").write_text("# 運用\n\n再起動手順。\n", encoding="utf-8")
+    result = api.run_active_memory_retrieval(
+        [{"name": "active", "active_memory_directory": "workspace/notes"}],
+        query="再起動した。アクティブメモリーは発動する感じではないでいいんだよね",
+    )
+    setattr(api, "get_hermes_home", original_home)
+    assert result["selected"] == []
+
+
+def test_active_memory_retrieval_supports_hiragana_topic(tmp_path: Path):
+    notes = tmp_path / "workspace" / "notes"
+    notes.mkdir(parents=True)
+    original_home = api.get_hermes_home
+    setattr(api, "get_hermes_home", lambda: tmp_path)
+    try:
+        (notes / "sleep.md").write_text("# 眠り\n\nおやすみ前の静かな習慣。\n", encoding="utf-8")
+        (notes / "noise.md").write_text("# 天気\n\n明日の降水確率。\n", encoding="utf-8")
+        result = api.run_active_memory_retrieval(
+            [{"name": "active", "active_memory_directory": "workspace/notes"}],
+            query="おやすみ",
+        )
+    finally:
+        setattr(api, "get_hermes_home", original_home)
+    assert result["selected"]
+    assert result["selected"][0]["path"].endswith("sleep.md")
+    assert "noise.md" not in result["entries"][0]["content"]
+
+
+def test_active_memory_retrieval_allows_single_specific_term(tmp_path: Path):
+    notes = tmp_path / "workspace" / "notes"
+    notes.mkdir(parents=True)
+    original_home = api.get_hermes_home
+    setattr(api, "get_hermes_home", lambda: tmp_path)
+    try:
+        (notes / "restart.md").write_text("# 運用\n\nHermes の再起動手順。\n", encoding="utf-8")
+        result = api.run_active_memory_retrieval(
+            [{"name": "active", "active_memory_directory": "workspace/notes"}],
+            query="再起動",
+        )
+    finally:
+        setattr(api, "get_hermes_home", original_home)
+    assert result["selected"]
+    assert result["selected"][0]["path"].endswith("restart.md")
+
+
+def test_active_memory_cache_refreshes_after_note_edit(tmp_path: Path):
+    notes = tmp_path / "workspace" / "notes"
+    notes.mkdir(parents=True)
+    note = notes / "cache.md"
+    original_home = api.get_hermes_home
+    setattr(api, "get_hermes_home", lambda: tmp_path)
+    try:
+        note.write_text("# Cache\n\nAlphaTopic のメモ。\n", encoding="utf-8")
+        lane = {"name": "active", "active_memory_directory": "workspace/notes"}
+        assert api.run_active_memory_retrieval([lane], query="AlphaTopic")["selected"]
+        note.write_text("# Cache\n\nBetaTopic の更新済みメモです。\n", encoding="utf-8")
+        assert api.run_active_memory_retrieval([lane], query="BetaTopic")["selected"]
+        assert api.run_active_memory_retrieval([lane], query="AlphaTopic")["selected"] == []
+    finally:
+        setattr(api, "get_hermes_home", original_home)
+
+
 def test_active_memory_directory_rejects_absolute_and_escape_paths():
     for directory in ("/tmp", "workspace/notes/../../secrets"):
         result = api.run_active_memory_retrieval(
@@ -183,6 +254,14 @@ if __name__ == "__main__":
         test_active_memory_retrieval_selects_relevant_markdown_and_ignores_unrelated(Path(temp))
     with tempfile.TemporaryDirectory() as temp:
         test_active_memory_retrieval_is_empty_for_blank_query_or_missing_directory(Path(temp))
+    with tempfile.TemporaryDirectory() as temp:
+        test_active_memory_ignores_generic_japanese_phrase_overlap(Path(temp))
+    with tempfile.TemporaryDirectory() as temp:
+        test_active_memory_retrieval_supports_hiragana_topic(Path(temp))
+    with tempfile.TemporaryDirectory() as temp:
+        test_active_memory_retrieval_allows_single_specific_term(Path(temp))
+    with tempfile.TemporaryDirectory() as temp:
+        test_active_memory_cache_refreshes_after_note_edit(Path(temp))
     test_active_memory_directory_rejects_absolute_and_escape_paths()
     test_append_active_memory_results_adds_soft_context()
     test_pre_call_hook_uses_current_message_as_query()
