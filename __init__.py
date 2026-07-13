@@ -48,7 +48,7 @@ def register(ctx) -> None:
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["get_config", "put_config", "resolve"],
+                        "enum": ["get_config", "put_config", "resolve", "health"],
                         "description": "Operation to perform.",
                     },
                     "config": {
@@ -65,18 +65,5 @@ def register(ctx) -> None:
         },
         handler=_control_handler,
         description='Control memory.',
-        emoji="🫧",
-    )
-
-    ctx.register_tool(
-        name="memory_health",
-        toolset="memory",
-        schema={
-            "name": "memory_health",
-            "description": 'Check Plugin.',
-            "parameters": {"type": "object", "properties": {}},
-        },
-        handler=lambda args, **kwargs: _control_handler({"action": "health"}, **kwargs),
-        description='Check memory health.',
         emoji="🫧",
     )
