@@ -12,11 +12,8 @@ skills or run diary producers.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
-PLUGIN_DIR = Path(__file__).resolve().parent
-SKILL_PATH = PLUGIN_DIR / "skills" / "memory-operations" / "SKILL.md"
 
 def _control_handler(args: dict[str, Any], **_: Any) -> str:
     from hermes_plugins.memory import control
@@ -38,29 +35,14 @@ def _control_handler(args: dict[str, Any], **_: Any) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
-def _compact_control_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    parameters = dict(schema.get("parameters") or {})
-    parameters["properties"] = {
-        key: {field: value for field, value in spec.items() if field != "description"}
-        for key, spec in (parameters.get("properties") or {}).items()
-    }
-    return {**schema, "parameters": parameters}
-
-
 def register(ctx) -> None:
     """Register the memory registry tool surface."""
-    if SKILL_PATH.exists() and hasattr(ctx, "register_skill"):
-        ctx.register_skill(
-            "memory-operations",
-            SKILL_PATH,
-            "Operate Hermes memory runtime configuration and diagnostic resolution.",
-        )
     ctx.register_tool(
         name="memory_control",
         toolset="memory",
-        schema=_compact_control_schema({
+        schema={
             "name": "memory_control",
-            "description": 'Before operating, load skill_view("memory:memory-operations").',
+            "description": 'Control memory.',
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -80,8 +62,8 @@ def register(ctx) -> None:
                 },
                 "additionalProperties": False,
             },
-        }),
+        },
         handler=_control_handler,
-        description='Before operating, load skill_view("memory:memory-operations").',
+        description='Control memory.',
         emoji="🫧",
     )
