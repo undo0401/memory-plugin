@@ -553,7 +553,7 @@
               h("div", { className: "lin-panel__fieldRowCheckbox" }, h(Checkbox, { checked: !!form.enabled, disabled: !!state.saving, onCheckedChange: function (v) { toggleSelectedLaneEnabled(!!v); } }), h(Label, null, form.enabled ? "enabled" : "disabled")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "name"), h(Input, { className: "lin-panel__input", value: form.name || "", onChange: function (e) { setFormValue("name", e.target.value); }, placeholder: "setting name" }), h("p", { className: "lin-panel__hint" }, "この設定は、今開いている dashboard profile（" + activeProfile(state.payload) + "）だけに保存されるよ。")),
               h("div", { className: "lin-panel__field" }, h(Label, null, "prompt"), h(Textarea, { className: "lin-panel__textarea", value: form.promptText || "", onChange: function (e) { setFormValue("promptText", e.target.value); }, placeholder: "Optional guidance for this setting" }), h("p", { className: "lin-panel__hint" }, "snapshot file とは別に、この lane 専用の補助 prompt を memory injection へ積めるよ。")),
-              h("div", { className: "lin-panel__fieldGroup lin-panel__fieldGroup--two" },
+              h("div", { className: "lin-panel__fieldGroup" },
                 h("div", { className: "lin-panel__field" },
                   h(Label, null, "idle minutes"),
                   h(Input, { type: "number", min: "0", step: "any", className: "lin-panel__input", value: form.idleMinutes || "", onChange: function (e) { setFormValue("idleMinutes", e.target.value); } }),
