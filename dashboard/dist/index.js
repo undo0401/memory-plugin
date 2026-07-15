@@ -119,7 +119,7 @@
       if (Number.isFinite(n)) seconds = Math.max(0, Math.floor(n * 60));
     }
     if (!Number.isFinite(seconds)) return "(never)";
-    if (seconds < 60) return String(Math.max(0, seconds)) + "s ago";
+    if (seconds < 60) return "just now";
     var minutes = Math.floor(seconds / 60);
     if (minutes < 60) return String(minutes) + "m ago";
     var hours = Math.floor(minutes / 60);
@@ -127,21 +127,22 @@
     return String(Math.floor(hours / 24)) + "d ago";
   }
   function durationLabel(seconds) {
-    const n = Number(seconds || 0);
-    if (!n) return "0s";
-    if (n % 3600 === 0) return (n / 3600) + "h";
-    if (n % 60 === 0) return (n / 60) + "m";
-    return n + "s";
+    const minutes = Math.max(0, Number(seconds || 0)) / 60;
+    if (!minutes) return "0m";
+    return String(Number(minutes.toFixed(2))) + "m";
+  }
+  function minutesFromSeconds(seconds) {
+    const value = Math.max(0, Number(seconds || 0));
+    return Number.isFinite(value) ? value / 60 : 0;
+  }
+  function secondsFromMinutes(minutes) {
+    const value = Math.max(0, Number(minutes || 0));
+    return Number.isFinite(value) ? Math.round(value * 60) : 0;
   }
   function timingSummary(idleSeconds) {
     const seconds = Number(idleSeconds || 0);
     if (!seconds) return "inject every matched turn";
     return "inject after " + durationLabel(seconds) + " since last injection";
-  }
-  function reinjectMinutesFromSeconds(seconds) {
-    const n = Math.max(0, Number(seconds || 0));
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    return Math.max(1, Math.ceil(n / 60));
   }
   function activeProfile(payload) {
     try {
@@ -242,7 +243,7 @@
             skills: Array.isArray(lane.skills) ? lane.skills.slice() : [],
             includeCurrentTime: !!lane.include_current_time,
             includeCurrentSource: !!lane.include_current_source,
-            idleSeconds: String(lane.idle_seconds || (Number(lane.reinject_interval_minutes || 0) * 60) || 0),
+            idleMinutes: String(minutesFromSeconds(lane.idle_seconds || (Number(lane.reinject_interval_minutes || 0) * 60) || 0)),
             scopeMode: defaultScopeMode(lane),
             targetSessionsText: ((lane.target_sessions || []).filter(function (item) { return item !== "*"; })).join("\n"),
             targetProfile: activeProfile(payload),
@@ -329,8 +330,8 @@
         skills: Array.isArray(form.skills) ? form.skills.slice() : [],
         include_current_time: !!form.includeCurrentTime,
         include_current_source: !!form.includeCurrentSource,
-        idle_seconds: Math.max(0, Number(form.idleSeconds || 0) || 0),
-        reinject_interval_minutes: reinjectMinutesFromSeconds(form.idleSeconds),
+        idle_seconds: secondsFromMinutes(form.idleMinutes),
+        reinject_interval_minutes: Math.max(0, Number(form.idleMinutes || 0) || 0),
         target_sessions: useTarget ? scopeValues : [],
         target_profiles: [activeProfile(state.payload)],
         exclude_sessions: useExclude ? scopeValues : [],
@@ -517,7 +518,7 @@
       var summaryTargetProfiles = activeProfile(state.payload);
       var summaryCurrentTime = form.includeCurrentTime ? "inject" : "skip";
       var summaryCurrentSource = form.includeCurrentSource ? "inject" : "skip";
-      var summaryTiming = timingSummary(form.idleSeconds || 0);
+      var summaryTiming = timingSummary(secondsFromMinutes(form.idleMinutes || 0));
       var summarySkills = Array.isArray(form.skills) && form.skills.length ? form.skills.join(", ") : "(none)";
       var summaryActiveMemoryDirectory = String(form.activeMemoryDirectory || "").trim();
       var runtimeInfo = laneRuntime(form.name) || {};
@@ -554,9 +555,9 @@
               h("div", { className: "lin-panel__field" }, h(Label, null, "prompt"), h(Textarea, { className: "lin-panel__textarea", value: form.promptText || "", onChange: function (e) { setFormValue("promptText", e.target.value); }, placeholder: "Optional guidance for this setting" }), h("p", { className: "lin-panel__hint" }, "snapshot file とは別に、この lane 専用の補助 prompt を memory injection へ積めるよ。")),
               h("div", { className: "lin-panel__fieldGroup lin-panel__fieldGroup--two" },
                 h("div", { className: "lin-panel__field" },
-                  h(Label, null, "idle seconds"),
-                  h(Input, { type: "number", min: "0", step: "1", className: "lin-panel__input", value: form.idleSeconds || "", onChange: function (e) { setFormValue("idleSeconds", e.target.value); } }),
-                  h("p", { className: "lin-panel__hint" }, "最後にこの memory を差し込んでから、次に再差し込みしていいまでの待ち時間だよ。0 は毎回差し込み。")
+                  h(Label, null, "idle minutes"),
+                  h(Input, { type: "number", min: "0", step: "any", className: "lin-panel__input", value: form.idleMinutes || "", onChange: function (e) { setFormValue("idleMinutes", e.target.value); } }),
+                  h("p", { className: "lin-panel__hint" }, "最後にこの memory を差し込んでから、次に再差し込みしていいまでの待ち時間（分）だよ。0 は毎回差し込み。")
                 )
               ),
               h("div", { className: "lin-panel__field" },
