@@ -12,7 +12,12 @@ skills or run diary producers.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
+
+
+PLUGIN_DIR = Path(__file__).resolve().parent
+SKILL_PATH = PLUGIN_DIR / "skills" / "registry" / "SKILL.md"
 
 
 def _control_handler(args: dict[str, Any], **_: Any) -> str:
@@ -37,6 +42,11 @@ def _control_handler(args: dict[str, Any], **_: Any) -> str:
 
 def register(ctx) -> None:
     """Register the memory registry tool surface."""
+    ctx.register_skill(
+        "registry",
+        SKILL_PATH,
+        "Memory plugin technical registry: tool, snapshot, and runtime boundaries.",
+    )
     ctx.register_tool(
         name="memory_control",
         toolset="memory",
