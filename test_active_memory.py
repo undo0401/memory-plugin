@@ -253,6 +253,86 @@ def test_read_active_memory_result_reads_only_a_last_selected_note(tmp_path: Pat
     assert rejected["error"] == "path_not_selected"
 
 
+def test_patch_lane_updates_only_requested_active_memory_fields(tmp_path: Path):
+    import json
+    import types
+
+    package = types.ModuleType("hermes_plugins")
+    package.__path__ = []
+    sys.modules.setdefault("hermes_plugins", package)
+    package_spec = importlib.util.spec_from_file_location(
+        "hermes_plugins.memory",
+        Path(__file__).parent / "__init__.py",
+        submodule_search_locations=[str(Path(__file__).parent)],
+    )
+    assert package_spec and package_spec.loader
+    memory_package = importlib.util.module_from_spec(package_spec)
+    sys.modules["hermes_plugins.memory"] = memory_package
+    package_spec.loader.exec_module(memory_package)
+    from hermes_plugins.memory import control
+
+    original_home = control.api.get_hermes_home
+    control.api.get_hermes_home = lambda: tmp_path
+    try:
+        control.api.config_path().parent.mkdir(parents=True)
+        control.api.config_path().write_text(json.dumps({"lanes": [
+            {"name": "all", "enabled": True, "active_memory_directory": "workspace/notes", "snapshot_files": ["state/STATUS.md"]},
+            {"name": "casual", "enabled": True, "active_memory_directory": "", "target_sessions": ["session-a"]},
+        ]}), encoding="utf-8")
+
+        result = control.patch_lane("all", {
+            "active_memory_directory": "workspace/notes/research",
+            "enabled": False,
+        })
+        config = control.api.load_config()
+    finally:
+        control.api.get_hermes_home = original_home
+
+    updated = next(lane for lane in config["lanes"] if lane["name"] == "all")
+    untouched = next(lane for lane in config["lanes"] if lane["name"] == "casual")
+    assert result["updated_lane"] == "all"
+    assert updated["active_memory_directory"] == "workspace/notes/research"
+    assert updated["enabled"] is False
+    assert updated["snapshot_files"] == ["state/STATUS.md"]
+    assert untouched["target_sessions"] == ["session-a"]
+
+
+def test_patch_lane_rejects_unknown_lanes_and_fields(tmp_path: Path):
+    import json
+    import types
+
+    package = types.ModuleType("hermes_plugins")
+    package.__path__ = []
+    sys.modules.setdefault("hermes_plugins", package)
+    package_spec = importlib.util.spec_from_file_location(
+        "hermes_plugins.memory",
+        Path(__file__).parent / "__init__.py",
+        submodule_search_locations=[str(Path(__file__).parent)],
+    )
+    assert package_spec and package_spec.loader
+    memory_package = importlib.util.module_from_spec(package_spec)
+    sys.modules["hermes_plugins.memory"] = memory_package
+    package_spec.loader.exec_module(memory_package)
+    from hermes_plugins.memory import control
+
+    original_home = control.api.get_hermes_home
+    control.api.get_hermes_home = lambda: tmp_path
+    try:
+        control.api.config_path().parent.mkdir(parents=True)
+        control.api.config_path().write_text(json.dumps({"lanes": [{"name": "all"}]}), encoding="utf-8")
+        missing = control.patch_lane("missing", {"enabled": False})
+        invalid = control.patch_lane("all", {"unknown": "nope"})
+        unsafe_directory = control.patch_lane("all", {"active_memory_directory": "/tmp"})
+        config = control.api.load_config()
+    finally:
+        control.api.get_hermes_home = original_home
+
+    assert missing == {"error": "lane_not_found"}
+    assert invalid == {"error": "unsupported_lane_fields", "fields": ["unknown"]}
+    assert unsafe_directory == {"error": "active_memory_directory_invalid"}
+    assert config["lanes"][0]["enabled"] is True
+
+
 def test_memory_registers_control_and_active_memory_tools():
     import types
 
@@ -288,12 +368,20 @@ def test_memory_registers_control_and_active_memory_tools():
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["get_config", "put_config", "resolve", "health"],
-                "description": "get_config confirms configuration; put_config replaces it; resolve previews a session injection; health checks runtime state.",
+                "enum": ["get_config", "put_config", "patch_lane", "resolve", "health"],
+                "description": "get_config confirms configuration; put_config replaces it; patch_lane safely updates fields on one existing lane; resolve previews a session injection; health checks runtime state.",
             },
             "config": {
                 "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
                 "description": "Full Memory configuration payload for action=put_config.",
+            },
+            "lane_name": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "description": "Existing lane name for action=patch_lane.",
+            },
+            "changes": {
+                "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
+                "description": "Partial allowed lane fields for action=patch_lane, such as active_memory_directory, enabled, selectors, or snapshot_files.",
             },
             "payload": {
                 "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
@@ -426,6 +514,10 @@ if __name__ == "__main__":
         test_record_active_memory_retrieval_keeps_only_notes_paths(Path(temp))
     with tempfile.TemporaryDirectory() as temp:
         test_read_active_memory_result_reads_only_a_last_selected_note(Path(temp))
+    with tempfile.TemporaryDirectory() as temp:
+        test_patch_lane_updates_only_requested_active_memory_fields(Path(temp))
+    with tempfile.TemporaryDirectory() as temp:
+        test_patch_lane_rejects_unknown_lanes_and_fields(Path(temp))
     test_memory_registers_control_and_active_memory_tools()
     test_append_active_memory_results_adds_soft_context()
     test_pre_call_hook_uses_current_message_as_query()

@@ -31,6 +31,11 @@ def _control_handler(args: dict[str, Any], **_: Any) -> str:
             result = control.get_config()
         elif action == "put_config":
             result = control.put_config((args or {}).get("config"))
+        elif action == "patch_lane":
+            result = control.patch_lane(
+                (args or {}).get("lane_name"),
+                (args or {}).get("changes"),
+            )
         elif action == "resolve":
             result = control.resolve((args or {}).get("payload"))
         elif action == "health":
@@ -82,12 +87,20 @@ def register(ctx) -> None:
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["get_config", "put_config", "resolve", "health"],
-                        "description": "get_config confirms configuration; put_config replaces it; resolve previews a session injection; health checks runtime state.",
+                        "enum": ["get_config", "put_config", "patch_lane", "resolve", "health"],
+                        "description": "get_config confirms configuration; put_config replaces it; patch_lane safely updates fields on one existing lane; resolve previews a session injection; health checks runtime state.",
                     },
                     "config": {
                         "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
                         "description": "Full Memory configuration payload for action=put_config.",
+                    },
+                    "lane_name": {
+                        "anyOf": [{"type": "string"}, {"type": "null"}],
+                        "description": "Existing lane name for action=patch_lane.",
+                    },
+                    "changes": {
+                        "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
+                        "description": "Partial allowed lane fields for action=patch_lane, such as active_memory_directory, enabled, selectors, or snapshot_files.",
                     },
                     "payload": {
                         "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],

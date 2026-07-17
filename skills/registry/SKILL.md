@@ -14,7 +14,7 @@ license: MIT
 
 - qualified skill: `memory:registry`
 - tool: `read_active_memory(path)` — 直近の Active Memory selection に含まれる note を読む
-- tool: `memory_control(action=...)` — config の確認・編集、注入判定の確認、runtime health を扱う
+- tool: `memory_control(action=...)` — config の確認・編集、注入判定の確認、runtime health を扱う。通常の lane 編集は `action="patch_lane"` に `lane_name` と `changes` を渡す部分更新を優先し、`put_config` は whole-config 置換が必要な時だけ使う
 - tool: `memory_status()` — lane と runtime の health を簡潔に確認する
 - canonical config: `config/memory.json`
 - runtime state: `state/memory-runtime.json`

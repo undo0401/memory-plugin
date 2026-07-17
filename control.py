@@ -98,6 +98,58 @@ def put_config(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
     return response
 
 
+def patch_lane(lane_name: str | None = None, changes: dict[str, Any] | str | None = None) -> dict[str, Any]:
+    """Safely apply a partial update to one existing Memory lane.
+
+    ``put_config`` remains the explicit whole-file replacement path.  This is
+    the normal control path for targeted selector, snapshot, and Active Memory
+    changes so unrelated lanes cannot be overwritten by a stale config read.
+    """
+    requested_name = api._safe_text(lane_name)
+    if not requested_name:
+        return {"error": "lane_name_required"}
+    requested_changes = api._coerce_json_dict(changes, context="lane changes")
+    if not requested_changes:
+        return {"error": "lane_changes_required"}
+
+    allowed_fields = set(api.DEFAULT_LANE) - {"name"}
+    unsupported = sorted(str(key) for key in requested_changes if key not in allowed_fields)
+    if unsupported:
+        return {"error": "unsupported_lane_fields", "fields": unsupported}
+
+    if "active_memory_directory" in requested_changes:
+        directory = api._safe_text(requested_changes["active_memory_directory"])
+        if directory and api._active_memory_root(directory) is None:
+            return {"error": "active_memory_directory_invalid"}
+
+    config = api.load_config()
+    lanes = list(config.get("lanes") or [])
+    lane_index = next(
+        (index for index, lane in enumerate(lanes) if api._safe_text(lane.get("name")) == requested_name),
+        None,
+    )
+    if lane_index is None:
+        return {"error": "lane_not_found"}
+
+    updated = dict(lanes[lane_index])
+    updated.update(requested_changes)
+    lanes[lane_index] = api._normalize_lane(updated, index=lane_index)
+    config["lanes"] = lanes
+    api._write_json(api.config_path(), config)
+
+    state = api.load_state()
+    state["last_saved_at"] = api.now_iso()
+    api.save_state(state)
+    woken_watchers = api._wake_runtime_watchers(reason="memory-control-patch-lane")
+    response = get_config()
+    response["updated_lane"] = requested_name
+    response["watcher"] = {
+        "reason": "memory-control-patch-lane",
+        "woken_watchers": woken_watchers,
+    }
+    return response
+
+
 def resolve(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
     request = api._coerce_json_dict(payload, context="resolve payload")
     source = request.get("source") or {}
