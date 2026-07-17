@@ -333,6 +333,45 @@ def test_patch_lane_rejects_unknown_lanes_and_fields(tmp_path: Path):
     assert config["lanes"][0]["enabled"] is True
 
 
+def test_dashboard_internal_control_dispatches_patch_lane():
+    import types
+
+    package = types.ModuleType("hermes_plugins")
+    package.__path__ = []
+    sys.modules.setdefault("hermes_plugins", package)
+    package_spec = importlib.util.spec_from_file_location(
+        "hermes_plugins.memory",
+        Path(__file__).parent / "__init__.py",
+        submodule_search_locations=[str(Path(__file__).parent)],
+    )
+    assert package_spec and package_spec.loader
+    memory_package = importlib.util.module_from_spec(package_spec)
+    sys.modules["hermes_plugins.memory"] = memory_package
+    package_spec.loader.exec_module(memory_package)
+    from hermes_plugins.memory import control
+
+    original_patch_lane = control.patch_lane
+    captured = {}
+    control.patch_lane = lambda lane_name, changes: captured.update({
+        "lane_name": lane_name,
+        "changes": changes,
+    }) or {"updated_lane": lane_name}
+    try:
+        result = api._dispatch_internal_control({
+            "action": "patch_lane",
+            "lane_name": "all",
+            "changes": {"active_memory_directory": "workspace/notes"},
+        })
+    finally:
+        control.patch_lane = original_patch_lane
+
+    assert captured == {
+        "lane_name": "all",
+        "changes": {"active_memory_directory": "workspace/notes"},
+    }
+    assert result == {"updated_lane": "all"}
+
+
 def test_memory_registers_control_and_active_memory_tools():
     import types
 
@@ -518,6 +557,7 @@ if __name__ == "__main__":
         test_patch_lane_updates_only_requested_active_memory_fields(Path(temp))
     with tempfile.TemporaryDirectory() as temp:
         test_patch_lane_rejects_unknown_lanes_and_fields(Path(temp))
+    test_dashboard_internal_control_dispatches_patch_lane()
     test_memory_registers_control_and_active_memory_tools()
     test_append_active_memory_results_adds_soft_context()
     test_pre_call_hook_uses_current_message_as_query()

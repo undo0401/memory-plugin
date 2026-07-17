@@ -1209,6 +1209,8 @@ def _dispatch_internal_control(args: dict[str, Any]) -> dict[str, Any]:
         return control.get_config()
     if action == "put_config":
         return control.put_config(args.get("config"))
+    if action == "patch_lane":
+        return control.patch_lane(args.get("lane_name"), args.get("changes"))
     if action == "resolve":
         return control.resolve(args.get("payload"))
     raise HTTPException(status_code=400, detail=f"unknown internal memory action: {action}")
