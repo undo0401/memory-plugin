@@ -71,6 +71,7 @@ def test_active_memory_retrieval_selects_relevant_markdown_and_ignores_unrelated
     assert result["selected"]
     assert result["selected"][0]["path"].endswith("memory.md")
     assert "Active Memory" in result["entries"][0]["content"]
+    assert "read_active_memory(path=<shown path>)" in result["entries"][0]["content"]
     assert "weather.md" not in result["entries"][0]["content"]
 
 

@@ -691,7 +691,11 @@ def run_active_memory_retrieval(lanes: list[dict[str, Any]], *, query: str) -> d
         if not lane_selected:
             continue
         selected.extend({**item, "lane_name": lane_name} for item in lane_selected)
-        lines = ["[Active memory]", "Use as soft context, not source of truth."]
+        lines = [
+            "[Active memory]",
+            "Use as soft context, not source of truth.",
+            "If surrounding context is necessary, use read_active_memory(path=<shown path>) only for a path listed below.",
+        ]
         for item in lane_selected:
             lines.extend([f"- {item['title']} ({item['path']})", f"  relevance={item['score']}", f"  excerpt={item['excerpt']}"])
         lines.append("[/Active memory]")
