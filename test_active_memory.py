@@ -252,7 +252,7 @@ def test_read_active_memory_result_reads_only_a_last_selected_note(tmp_path: Pat
     assert rejected["error"] == "path_not_selected"
 
 
-def test_memory_control_registers_read_active_memory_result_action():
+def test_memory_registers_separate_active_memory_tools_without_control_router():
     import types
 
     package = types.ModuleType("hermes_plugins")
@@ -269,20 +269,35 @@ def test_memory_control_registers_read_active_memory_result_action():
     package_spec.loader.exec_module(memory_package)
 
     class FakeContext:
-        tool = None
+        tools = []
 
         def register_skill(self, *_args, **_kwargs):
             return None
 
         def register_tool(self, **kwargs):
-            self.tool = kwargs
+            self.tools.append(kwargs)
 
     context = FakeContext()
     memory_package.register(context)
-    parameters = context.tool["schema"]["parameters"]
+    tools = {tool["name"]: tool for tool in context.tools}
 
-    assert "read_active_memory_result" in parameters["properties"]["action"]["enum"]
-    assert parameters["properties"]["path"]["type"] == "string"
+    assert set(tools) == {"memory_read_selected_note", "memory_status"}
+    assert tools["memory_read_selected_note"]["schema"]["parameters"] == {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Absolute path returned by the latest active-memory selection.",
+            },
+        },
+        "required": ["path"],
+        "additionalProperties": False,
+    }
+    assert tools["memory_status"]["schema"]["parameters"] == {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    }
 
 
 def test_append_active_memory_results_adds_soft_context():
@@ -391,7 +406,7 @@ if __name__ == "__main__":
         test_record_active_memory_retrieval_keeps_only_notes_paths(Path(temp))
     with tempfile.TemporaryDirectory() as temp:
         test_read_active_memory_result_reads_only_a_last_selected_note(Path(temp))
-    test_memory_control_registers_read_active_memory_result_action()
+    test_memory_registers_separate_active_memory_tools_without_control_router()
     test_append_active_memory_results_adds_soft_context()
     test_pre_call_hook_uses_current_message_as_query()
     print("memory active-memory tests ok")

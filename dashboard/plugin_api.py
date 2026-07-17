@@ -1196,32 +1196,30 @@ def _memory_lane_runtime_summary(state: dict[str, Any]) -> dict[str, Any]:
 
 
 
-def _dispatch_registry_tool(args: dict[str, Any]) -> dict[str, Any]:
-    """Route dashboard operations through the plugin tool registry surface."""
-    from tools.registry import registry
+def _dispatch_internal_control(args: dict[str, Any]) -> dict[str, Any]:
+    """Route dashboard-only operations to Memory's internal control module."""
+    from hermes_plugins.memory import control
 
-    raw = registry.dispatch("memory_control", args)
-    try:
-        decoded = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=500, detail="memory_control returned invalid JSON") from exc
-    if isinstance(decoded, dict) and decoded.get("error"):
-        raise HTTPException(status_code=500, detail=str(decoded.get("error")))
-    if not isinstance(decoded, dict):
-        raise HTTPException(status_code=500, detail="memory_control returned non-object JSON")
-    return decoded
+    action = _safe_text(args.get("action"))
+    if action == "get_config":
+        return control.get_config()
+    if action == "put_config":
+        return control.put_config(args.get("config"))
+    if action == "resolve":
+        return control.resolve(args.get("payload"))
+    raise HTTPException(status_code=400, detail=f"unknown internal memory action: {action}")
 
 
 @router.get("/config")
 async def get_config() -> dict[str, Any]:
-    return _dispatch_registry_tool({"action": "get_config"})
+    return _dispatch_internal_control({"action": "get_config"})
 
 
 @router.put("/config")
 async def put_config(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
-    return _dispatch_registry_tool({"action": "put_config", "config": payload})
+    return _dispatch_internal_control({"action": "put_config", "config": payload})
 
 
 @router.post("/resolve")
 async def resolve_configured_memory(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
-    return _dispatch_registry_tool({"action": "resolve", "payload": payload})
+    return _dispatch_internal_control({"action": "resolve", "payload": payload})

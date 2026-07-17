@@ -1,11 +1,11 @@
 """Hermes plugin entrypoint for memory runtime assets and dashboard hooks.
 
-Configuration and resolve operations are exposed through the Hermes tool
-registry as `memory_control`. Dashboard HTTP endpoints route through that tool;
-operational implementation lives in `control.py` behind the registry surface.
+Agent-facing tools expose only the Active Memory actions that are meaningful in
+conversation. Configuration and injection resolution remain dashboard/runtime
+internals in ``control.py``; they are not a generic agent control router.
 
 Diary/daily-memory authoring and snapshot production are intentionally outside
-this plugin.  Memory consumes configured snapshots; it does not register diary
+this plugin. Memory consumes configured snapshots; it does not register diary
 skills or run diary producers.
 """
 
@@ -20,23 +20,23 @@ PLUGIN_DIR = Path(__file__).resolve().parent
 SKILL_PATH = PLUGIN_DIR / "skills" / "registry" / "SKILL.md"
 
 
-def _control_handler(args: dict[str, Any], **_: Any) -> str:
+def _read_selected_note_handler(args: dict[str, Any], **_: Any) -> str:
+    """Read one note that Active Memory selected for the current retrieval."""
     from hermes_plugins.memory import control
 
-    action = str((args or {}).get("action") or "get_config").strip()
     try:
-        if action == "get_config":
-            result = control.get_config()
-        elif action == "put_config":
-            result = control.put_config((args or {}).get("config"))
-        elif action == "resolve":
-            result = control.resolve((args or {}).get("payload"))
-        elif action == "health":
-            result = control.health()
-        elif action == "read_active_memory_result":
-            result = control.read_active_memory_result((args or {}).get("path"))
-        else:
-            result = {"error": f"unknown memory_control action: {action}"}
+        result = control.read_active_memory_result((args or {}).get("path"))
+    except Exception as exc:
+        result = {"error": f"{type(exc).__name__}: {exc}"}
+    return json.dumps(result, ensure_ascii=False)
+
+
+def _status_handler(_args: dict[str, Any], **_: Any) -> str:
+    """Return compact plugin-owned health for an explicit status check."""
+    from hermes_plugins.memory import control
+
+    try:
+        result = control.health()
     except Exception as exc:
         result = {"error": f"{type(exc).__name__}: {exc}"}
     return json.dumps(result, ensure_ascii=False)
@@ -50,36 +50,40 @@ def register(ctx) -> None:
         "Memory plugin technical registry: tool, snapshot, and runtime boundaries.",
     )
     ctx.register_tool(
-        name="memory_control",
+        name="memory_read_selected_note",
         toolset="memory",
         schema={
-            "name": "memory_control",
-            "description": 'Control memory.',
+            "name": "memory_read_selected_note",
+            "description": "Read a note selected by the latest Active Memory retrieval.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["get_config", "put_config", "resolve", "health", "read_active_memory_result"],
-                        "description": "Operation to perform.",
-                    },
-                    "config": {
-                        "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
-                        "description": "Full memory config payload for put_config.",
-                    },
-                    "payload": {
-                        "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
-                        "description": "Resolve payload for action=resolve.",
-                    },
                     "path": {
                         "type": "string",
-                        "description": "Path shown in the latest active-memory selection for action=read_active_memory_result.",
+                        "description": "Absolute path returned by the latest active-memory selection.",
                     },
                 },
+                "required": ["path"],
                 "additionalProperties": False,
             },
         },
-        handler=_control_handler,
-        description='Control memory.',
+        handler=_read_selected_note_handler,
+        description="Read a note selected by Active Memory.",
+        emoji="🫧",
+    )
+    ctx.register_tool(
+        name="memory_status",
+        toolset="memory",
+        schema={
+            "name": "memory_status",
+            "description": "Check Active Memory health and lane status.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+        handler=_status_handler,
+        description="Check Active Memory health and lane status.",
         emoji="🫧",
     )
