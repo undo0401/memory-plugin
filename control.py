@@ -2,9 +2,55 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from .dashboard import plugin_api as api
+
+
+_ACTIVE_MEMORY_RESULT_MAX_CHARS = 12_000
+
+
+def read_active_memory_result(path: str | None = None) -> dict[str, Any]:
+    """Read a bounded note only when the latest active-memory retrieval selected it."""
+    requested = api._safe_text(path)
+    if not requested:
+        return {"error": "path_required"}
+
+    notes_root = api._active_memory_root("workspace/notes")
+    candidate = Path(requested).expanduser()
+    if notes_root is None or not candidate.is_absolute():
+        return {"error": "path_outside_notes_root"}
+    try:
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(notes_root)
+    except (OSError, ValueError):
+        return {"error": "path_outside_notes_root"}
+
+    state = api.load_state()
+    retrieval = state.get("last_active_memory_retrieval") or {}
+    selected = retrieval.get("selected") if isinstance(retrieval, dict) else []
+    if not isinstance(selected, list):
+        selected = []
+    allowed_paths = {
+        str(Path(item.get("path") or "").resolve(strict=False))
+        for item in selected
+        if isinstance(item, dict) and api._safe_text(item.get("path"))
+    }
+    if str(resolved) not in allowed_paths:
+        return {"error": "path_not_selected"}
+    if not resolved.is_file():
+        return {"error": "selected_path_missing"}
+    try:
+        content = resolved.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return {"error": f"read_failed: {type(exc).__name__}"}
+    return {
+        "path": str(resolved),
+        "content": content[:_ACTIVE_MEMORY_RESULT_MAX_CHARS],
+        "chars": min(len(content), _ACTIVE_MEMORY_RESULT_MAX_CHARS),
+        "truncated": len(content) > _ACTIVE_MEMORY_RESULT_MAX_CHARS,
+    }
 
 
 def get_config() -> dict[str, Any]:

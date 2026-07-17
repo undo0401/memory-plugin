@@ -68,6 +68,7 @@ DEFAULT_STATE = {
     "last_tick_at": None,
     "last_tick_summary": None,
     "last_resolution": None,
+    "last_active_memory_retrieval": None,
     "session_runtime": {},
 }
 _ACTIVE_MEMORY_CACHE: dict[str, dict[str, Any]] = {}
@@ -704,6 +705,32 @@ def run_active_memory_retrieval(lanes: list[dict[str, Any]], *, query: str) -> d
             "directory": str(root),
         })
     return {"entries": entries, "selected": selected, "errors": errors}
+
+
+def record_active_memory_retrieval(session_key: str, retrieval: dict[str, Any]) -> dict[str, Any]:
+    """Persist only the paths selected by the most recent active-memory retrieval."""
+    notes_root = _active_memory_root("workspace/notes")
+    selected_paths: list[dict[str, str]] = []
+    for item in list(retrieval.get("selected") or []):
+        if not isinstance(item, dict):
+            continue
+        raw_path = _safe_text(item.get("path"))
+        if not raw_path or notes_root is None:
+            continue
+        try:
+            path = Path(raw_path).resolve(strict=False)
+            path.relative_to(notes_root)
+        except (OSError, ValueError):
+            continue
+        selected_paths.append({"path": str(path)})
+    state = load_state()
+    state["last_active_memory_retrieval"] = {
+        "recorded_at": now_iso(),
+        "session_key": _safe_text(session_key),
+        "selected": selected_paths,
+    }
+    save_state(state)
+    return state
 
 
 def append_active_memory_results(result: dict[str, Any], retrieval: dict[str, Any]) -> dict[str, Any]:

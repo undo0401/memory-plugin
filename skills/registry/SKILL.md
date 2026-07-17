@@ -13,7 +13,7 @@ license: MIT
 ## Surface
 
 - qualified skill: `memory:registry`
-- tool: `memory_control` — `get_config` / `put_config` / `resolve` / `health`
+- tool: `memory_control` — `get_config` / `put_config` / `resolve` / `health` / `read_active_memory_result`
 - canonical config: `config/memory.json`
 - runtime state: `state/memory-runtime.json`
 - runtime / dashboard: `runtime.py` / `dashboard/plugin_api.py`

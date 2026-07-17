@@ -167,6 +167,111 @@ def test_active_memory_directory_rejects_absolute_and_escape_paths():
         assert result["errors"][0]["error"] == "directory_outside_notes_root"
 
 
+def test_record_active_memory_retrieval_keeps_only_notes_paths(tmp_path: Path):
+    notes = tmp_path / "workspace" / "notes"
+    notes.mkdir(parents=True)
+    selected = notes / "selected.md"
+    selected.write_text("selected", encoding="utf-8")
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside", encoding="utf-8")
+    original_home = api.get_hermes_home
+    api.get_hermes_home = lambda: tmp_path
+    try:
+        api.record_active_memory_retrieval("session", {
+            "selected": [{"path": str(selected)}, {"path": str(outside)}],
+        })
+        state = api.load_state()
+        first_retrieval = state["last_active_memory_retrieval"]
+        api.record_active_memory_retrieval("session", {"selected": []})
+        cleared_retrieval = api.load_state()["last_active_memory_retrieval"]
+    finally:
+        api.get_hermes_home = original_home
+
+    retrieval = first_retrieval
+    assert retrieval["session_key"] == "session"
+    assert retrieval["selected"] == [{"path": str(selected)}]
+    assert cleared_retrieval["selected"] == []
+
+
+def test_read_active_memory_result_reads_only_a_last_selected_note(tmp_path: Path):
+    import json
+    import types
+
+    package = types.ModuleType("hermes_plugins")
+    package.__path__ = []
+    sys.modules.setdefault("hermes_plugins", package)
+    package_spec = importlib.util.spec_from_file_location(
+        "hermes_plugins.memory",
+        Path(__file__).parent / "__init__.py",
+        submodule_search_locations=[str(Path(__file__).parent)],
+    )
+    assert package_spec and package_spec.loader
+    memory_package = importlib.util.module_from_spec(package_spec)
+    sys.modules["hermes_plugins.memory"] = memory_package
+    package_spec.loader.exec_module(memory_package)
+    from hermes_plugins.memory import control
+
+    notes = tmp_path / "workspace" / "notes"
+    notes.mkdir(parents=True)
+    selected = notes / "selected.md"
+    selected.write_text("# Selected\n\nfull active-memory note", encoding="utf-8")
+    ignored = notes / "ignored.md"
+    ignored.write_text("# Ignored\n\nshould not be readable", encoding="utf-8")
+
+    original_home = control.api.get_hermes_home
+    control.api.get_hermes_home = lambda: tmp_path
+    try:
+        state_path = control.api.state_path()
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text(json.dumps({
+            "last_active_memory_retrieval": {
+                "selected": [{"path": str(selected)}],
+            },
+        }), encoding="utf-8")
+
+        result = control.read_active_memory_result(str(selected))
+        rejected = control.read_active_memory_result(str(ignored))
+    finally:
+        control.api.get_hermes_home = original_home
+
+    assert result["path"] == str(selected)
+    assert result["content"] == "# Selected\n\nfull active-memory note"
+    assert rejected["error"] == "path_not_selected"
+
+
+def test_memory_control_registers_read_active_memory_result_action():
+    import types
+
+    package = types.ModuleType("hermes_plugins")
+    package.__path__ = []
+    sys.modules.setdefault("hermes_plugins", package)
+    package_spec = importlib.util.spec_from_file_location(
+        "hermes_plugins.memory",
+        Path(__file__).parent / "__init__.py",
+        submodule_search_locations=[str(Path(__file__).parent)],
+    )
+    assert package_spec and package_spec.loader
+    memory_package = importlib.util.module_from_spec(package_spec)
+    sys.modules["hermes_plugins.memory"] = memory_package
+    package_spec.loader.exec_module(memory_package)
+
+    class FakeContext:
+        tool = None
+
+        def register_skill(self, *_args, **_kwargs):
+            return None
+
+        def register_tool(self, **kwargs):
+            self.tool = kwargs
+
+    context = FakeContext()
+    memory_package.register(context)
+    parameters = context.tool["schema"]["parameters"]
+
+    assert "read_active_memory_result" in parameters["properties"]["action"]["enum"]
+    assert parameters["properties"]["path"]["type"] == "string"
+
+
 def test_append_active_memory_results_adds_soft_context():
     base = {"text": "Current time: now", "loaded_files": [], "missing_files": []}
     retrieval = {
@@ -191,6 +296,7 @@ def test_append_active_memory_results_adds_soft_context():
 def test_pre_call_hook_uses_current_message_as_query():
     class FakeApi:
         captured_query = None
+        recorded_retrieval = None
 
         @staticmethod
         def load_config():
@@ -226,6 +332,10 @@ def test_pre_call_hook_uses_current_message_as_query():
                 "errors": [],
             }
 
+        @classmethod
+        def record_active_memory_retrieval(cls, session_key, retrieval):
+            cls.recorded_retrieval = (session_key, retrieval)
+
         append_active_memory_results = staticmethod(api.append_active_memory_results)
 
         @staticmethod
@@ -242,6 +352,7 @@ def test_pre_call_hook_uses_current_message_as_query():
         source=None,
     )
     assert FakeApi.captured_query == "alphaを思い出して"
+    assert FakeApi.recorded_retrieval == ("session", {"entries": [{"path": "__active_memory__:active-memory", "content": "[Active memory]\nalpha\n[/Active memory]", "kind": "active_memory"}], "selected": [{"path": "alpha.md"}], "errors": []})
     assert "base context" in rendered
     assert "[Active memory]" in rendered
 
@@ -263,6 +374,11 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as temp:
         test_active_memory_cache_refreshes_after_note_edit(Path(temp))
     test_active_memory_directory_rejects_absolute_and_escape_paths()
+    with tempfile.TemporaryDirectory() as temp:
+        test_record_active_memory_retrieval_keeps_only_notes_paths(Path(temp))
+    with tempfile.TemporaryDirectory() as temp:
+        test_read_active_memory_result_reads_only_a_last_selected_note(Path(temp))
+    test_memory_control_registers_read_active_memory_result_action()
     test_append_active_memory_results_adds_soft_context()
     test_pre_call_hook_uses_current_message_as_query()
     print("memory active-memory tests ok")

@@ -220,6 +220,7 @@ def _with_pre_call_memory_context(api: Any, *, runner: Any, message: Any, contex
         return base
     result = dict(policy.get("result") or {})
     should_inject = bool(policy.get("should_inject")) and bool(result.get("matched"))
+    active_memory_result: dict[str, Any] = {"selected": []}
     if should_inject:
         try:
             active_memory_result = api.run_active_memory_retrieval(
@@ -231,6 +232,10 @@ def _with_pre_call_memory_context(api: Any, *, runner: Any, message: Any, contex
             policy["result"] = result
         except Exception:
             logger.debug("memory tick: failed to retrieve active memory", exc_info=True)
+    try:
+        api.record_active_memory_retrieval(str(policy.get("session_key") or session_key or ""), active_memory_result)
+    except Exception:
+        logger.debug("memory tick: failed to record active-memory selection", exc_info=True)
     text = str(result.get("text") or "").strip()
     should_inject = should_inject and bool(text)
     try:

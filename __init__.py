@@ -33,6 +33,8 @@ def _control_handler(args: dict[str, Any], **_: Any) -> str:
             result = control.resolve((args or {}).get("payload"))
         elif action == "health":
             result = control.health()
+        elif action == "read_active_memory_result":
+            result = control.read_active_memory_result((args or {}).get("path"))
         else:
             result = {"error": f"unknown memory_control action: {action}"}
     except Exception as exc:
@@ -58,7 +60,7 @@ def register(ctx) -> None:
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["get_config", "put_config", "resolve", "health"],
+                        "enum": ["get_config", "put_config", "resolve", "health", "read_active_memory_result"],
                         "description": "Operation to perform.",
                     },
                     "config": {
@@ -68,6 +70,10 @@ def register(ctx) -> None:
                     "payload": {
                         "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
                         "description": "Resolve payload for action=resolve.",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Path shown in the latest active-memory selection for action=read_active_memory_result.",
                     },
                 },
                 "additionalProperties": False,
