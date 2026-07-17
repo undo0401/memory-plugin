@@ -252,7 +252,7 @@ def test_read_active_memory_result_reads_only_a_last_selected_note(tmp_path: Pat
     assert rejected["error"] == "path_not_selected"
 
 
-def test_memory_registers_separate_active_memory_tools_without_control_router():
+def test_memory_registers_control_and_active_memory_tools():
     import types
 
     package = types.ModuleType("hermes_plugins")
@@ -281,8 +281,27 @@ def test_memory_registers_separate_active_memory_tools_without_control_router():
     memory_package.register(context)
     tools = {tool["name"]: tool for tool in context.tools}
 
-    assert set(tools) == {"memory_read_selected_note", "memory_status"}
-    assert tools["memory_read_selected_note"]["schema"]["parameters"] == {
+    assert set(tools) == {"memory_control", "read_active_memory", "memory_status"}
+    assert tools["memory_control"]["schema"]["parameters"] == {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["get_config", "put_config", "resolve", "health"],
+                "description": "get_config confirms configuration; put_config replaces it; resolve previews a session injection; health checks runtime state.",
+            },
+            "config": {
+                "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
+                "description": "Full Memory configuration payload for action=put_config.",
+            },
+            "payload": {
+                "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
+                "description": "Session/source payload for action=resolve.",
+            },
+        },
+        "additionalProperties": False,
+    }
+    assert tools["read_active_memory"]["schema"]["parameters"] == {
         "type": "object",
         "properties": {
             "path": {
@@ -406,7 +425,7 @@ if __name__ == "__main__":
         test_record_active_memory_retrieval_keeps_only_notes_paths(Path(temp))
     with tempfile.TemporaryDirectory() as temp:
         test_read_active_memory_result_reads_only_a_last_selected_note(Path(temp))
-    test_memory_registers_separate_active_memory_tools_without_control_router()
+    test_memory_registers_control_and_active_memory_tools()
     test_append_active_memory_results_adds_soft_context()
     test_pre_call_hook_uses_current_message_as_query()
     print("memory active-memory tests ok")

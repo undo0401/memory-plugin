@@ -1,8 +1,9 @@
 """Hermes plugin entrypoint for memory runtime assets and dashboard hooks.
 
-Agent-facing tools expose only the Active Memory actions that are meaningful in
-conversation. Configuration and injection resolution remain dashboard/runtime
-internals in ``control.py``; they are not a generic agent control router.
+Agent-facing tools expose selected Active Memory reads and an explicit Memory
+control surface. ``memory_control`` is for configuration inspection, edits, and
+injection diagnostics; selected note reads stay separate so their path gate is
+clear.
 
 Diary/daily-memory authoring and snapshot production are intentionally outside
 this plugin. Memory consumes configured snapshots; it does not register diary
@@ -20,7 +21,28 @@ PLUGIN_DIR = Path(__file__).resolve().parent
 SKILL_PATH = PLUGIN_DIR / "skills" / "registry" / "SKILL.md"
 
 
-def _read_selected_note_handler(args: dict[str, Any], **_: Any) -> str:
+def _control_handler(args: dict[str, Any], **_: Any) -> str:
+    """Inspect or edit Memory config, or inspect an injection decision."""
+    from hermes_plugins.memory import control
+
+    action = str((args or {}).get("action") or "get_config").strip()
+    try:
+        if action == "get_config":
+            result = control.get_config()
+        elif action == "put_config":
+            result = control.put_config((args or {}).get("config"))
+        elif action == "resolve":
+            result = control.resolve((args or {}).get("payload"))
+        elif action == "health":
+            result = control.health()
+        else:
+            result = {"error": f"unknown memory_control action: {action}"}
+    except Exception as exc:
+        result = {"error": f"{type(exc).__name__}: {exc}"}
+    return json.dumps(result, ensure_ascii=False)
+
+
+def _read_active_memory_handler(args: dict[str, Any], **_: Any) -> str:
     """Read one note that Active Memory selected for the current retrieval."""
     from hermes_plugins.memory import control
 
@@ -50,10 +72,40 @@ def register(ctx) -> None:
         "Memory plugin technical registry: tool, snapshot, and runtime boundaries.",
     )
     ctx.register_tool(
-        name="memory_read_selected_note",
+        name="memory_control",
         toolset="memory",
         schema={
-            "name": "memory_read_selected_note",
+            "name": "memory_control",
+            "description": "Inspect or edit Memory configuration and inspect an injection decision.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["get_config", "put_config", "resolve", "health"],
+                        "description": "get_config confirms configuration; put_config replaces it; resolve previews a session injection; health checks runtime state.",
+                    },
+                    "config": {
+                        "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
+                        "description": "Full Memory configuration payload for action=put_config.",
+                    },
+                    "payload": {
+                        "anyOf": [{"type": "object"}, {"type": "string"}, {"type": "null"}],
+                        "description": "Session/source payload for action=resolve.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+        handler=_control_handler,
+        description="Inspect or edit Memory configuration.",
+        emoji="🫧",
+    )
+    ctx.register_tool(
+        name="read_active_memory",
+        toolset="memory",
+        schema={
+            "name": "read_active_memory",
             "description": "Read a note selected by the latest Active Memory retrieval.",
             "parameters": {
                 "type": "object",
@@ -67,7 +119,7 @@ def register(ctx) -> None:
                 "additionalProperties": False,
             },
         },
-        handler=_read_selected_note_handler,
+        handler=_read_active_memory_handler,
         description="Read a note selected by Active Memory.",
         emoji="🫧",
     )

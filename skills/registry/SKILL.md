@@ -13,14 +13,14 @@ license: MIT
 ## Surface
 
 - qualified skill: `memory:registry`
-- tool: `memory_read_selected_note(path)` — 直近の Active Memory selection に含まれる note を読む
-- tool: `memory_status()` — lane と runtime の health を確認する
-- dashboard-only internal control: config の get/put と resolve
+- tool: `read_active_memory(path)` — 直近の Active Memory selection に含まれる note を読む
+- tool: `memory_control(action=...)` — config の確認・編集、注入判定の確認、runtime health を扱う
+- tool: `memory_status()` — lane と runtime の health を簡潔に確認する
 - canonical config: `config/memory.json`
 - runtime state: `state/memory-runtime.json`
 - runtime / dashboard: `runtime.py` / `dashboard/plugin_api.py`
 
-schema は `__init__.py` が正本。note 本文を確認する時だけ `tool_search("memory_read_selected_note")` で現行 surface を確認する。config 編集と resolve は dashboard 経由で行い、Agent tool として公開しない。
+schema は `__init__.py` が正本。note 本文を確認する時は `tool_search("read_active_memory")`、設定を確認・編集する時は `tool_search("memory_control")` で現行 surface を確認する。
 
 ## Boundaries
 
@@ -33,8 +33,8 @@ schema は `__init__.py` が正本。note 本文を確認する時だけ `tool_s
 ## Change and verification
 
 1. lane selector・snapshot path・注入量の変更前に dashboard の既存 config を読む。
-2. dashboard の resolve と `memory_status()` を使い、対象 session と投入候補を確認する。
-3. Python 構文確認と、stub context で `register_skill("registry", ...)` / `memory_read_selected_note` / `memory_status` の登録を確認する。
+2. `memory_control(action="resolve")` と `memory_status()` を使い、対象 session と投入候補を確認する。
+3. Python 構文確認と、stub context で `register_skill("registry", ...)` / `memory_control` / `read_active_memory` / `memory_status` の登録を確認する。
 4. gateway restart 後、runtime alive と **現在 thread が対象か** を別々に確認する。再起動はマスター担当。
 
 config shape、snapshot reservation、selector の詳細は plugin `README.md` と `references/memory-context-snapshot-compaction.md` を読む。
