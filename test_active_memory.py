@@ -75,6 +75,30 @@ def test_active_memory_retrieval_selects_relevant_markdown_and_ignores_unrelated
     assert "weather.md" not in result["entries"][0]["content"]
 
 
+def test_active_memory_retrieval_limits_each_lane_to_two_100_character_frontmatter_excerpts(tmp_path: Path):
+    notes = tmp_path / "workspace" / "notes"
+    notes.mkdir(parents=True)
+    original_home = api.get_hermes_home
+    setattr(api, "get_hermes_home", lambda: tmp_path)
+    try:
+        for name in ("a", "b", "c"):
+            (notes / f"{name}.md").write_text(
+                f"---\ntags: [needle]\n---\nneedle {name} " + ("x" * 180),
+                encoding="utf-8",
+            )
+        result = api.run_active_memory_retrieval(
+            [{"name": "active", "active_memory_directory": "workspace/notes"}],
+            query="needle",
+        )
+    finally:
+        setattr(api, "get_hermes_home", original_home)
+
+    assert len(result["selected"]) == 2
+    assert all(len(item["excerpt"]) == 100 for item in result["selected"])
+    assert "excerpt=--- tags: [needle] --- needle a" in result["entries"][0]["content"]
+    assert "c.md" not in result["entries"][0]["content"]
+
+
 def test_active_memory_retrieval_is_empty_for_blank_query_or_missing_directory(tmp_path: Path):
     original_home = api.get_hermes_home
     setattr(api, "get_hermes_home", lambda: tmp_path)
@@ -538,6 +562,8 @@ if __name__ == "__main__":
     test_normalize_lane_replaces_pre_context_command_with_active_memory_directory()
     with tempfile.TemporaryDirectory() as temp:
         test_active_memory_retrieval_selects_relevant_markdown_and_ignores_unrelated(Path(temp))
+    with tempfile.TemporaryDirectory() as temp:
+        test_active_memory_retrieval_limits_each_lane_to_two_100_character_frontmatter_excerpts(Path(temp))
     with tempfile.TemporaryDirectory() as temp:
         test_active_memory_retrieval_is_empty_for_blank_query_or_missing_directory(Path(temp))
     with tempfile.TemporaryDirectory() as temp:

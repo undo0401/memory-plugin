@@ -641,7 +641,7 @@ def _active_memory_records(root: Path) -> list[dict[str, Any]]:
             "title": path.stem,
             "path": path_text,
             "terms": Counter(_active_memory_terms(f"{path.stem}\n{text}", expand_kanji=True)),
-            "excerpt": re.sub(r"\s+", " ", text).strip()[:700],
+            "excerpt": re.sub(r"\s+", " ", text).strip()[:100],
         })
     _ACTIVE_MEMORY_CACHE[cache_key] = {"signature": signature, "records": records}
     return records
@@ -687,7 +687,7 @@ def run_active_memory_retrieval(lanes: list[dict[str, Any]], *, query: str) -> d
                 denominator = frequency + 1.2 * (1 - 0.75 + 0.75 * document_length / max(1, average_length))
                 score += inverse_frequency * frequency * 2.2 / denominator
             candidates.append({"title": record["title"], "path": record["path"], "score": round(score, 4), "excerpt": record["excerpt"]})
-        lane_selected = sorted(candidates, key=lambda item: (-float(item["score"]), str(item["path"])))[:3]
+        lane_selected = sorted(candidates, key=lambda item: (-float(item["score"]), str(item["path"])))[:2]
         if not lane_selected:
             continue
         selected.extend({**item, "lane_name": lane_name} for item in lane_selected)
