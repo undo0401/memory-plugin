@@ -42,14 +42,18 @@ def read_active_memory_result(path: str | None = None) -> dict[str, Any]:
     if not resolved.is_file():
         return {"error": "selected_path_missing"}
     try:
-        content = resolved.read_text(encoding="utf-8")
+        with resolved.open(encoding="utf-8") as note:
+            content = note.read(_ACTIVE_MEMORY_RESULT_MAX_CHARS + 1)
     except (OSError, UnicodeError) as exc:
         return {"error": f"read_failed: {type(exc).__name__}"}
+    truncated = len(content) > _ACTIVE_MEMORY_RESULT_MAX_CHARS
+    if truncated:
+        content = content[:_ACTIVE_MEMORY_RESULT_MAX_CHARS]
     return {
         "path": str(resolved),
-        "content": content[:_ACTIVE_MEMORY_RESULT_MAX_CHARS],
-        "chars": min(len(content), _ACTIVE_MEMORY_RESULT_MAX_CHARS),
-        "truncated": len(content) > _ACTIVE_MEMORY_RESULT_MAX_CHARS,
+        "content": content,
+        "chars": len(content),
+        "truncated": truncated,
     }
 
 

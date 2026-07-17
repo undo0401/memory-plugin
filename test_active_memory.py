@@ -214,7 +214,7 @@ def test_read_active_memory_result_reads_only_a_last_selected_note(tmp_path: Pat
     notes = tmp_path / "workspace" / "notes"
     notes.mkdir(parents=True)
     selected = notes / "selected.md"
-    selected.write_text("# Selected\n\nfull active-memory note", encoding="utf-8")
+    selected.write_text("# Selected\n\n" + ("x" * 12_001), encoding="utf-8")
     ignored = notes / "ignored.md"
     ignored.write_text("# Ignored\n\nshould not be readable", encoding="utf-8")
 
@@ -229,13 +229,26 @@ def test_read_active_memory_result_reads_only_a_last_selected_note(tmp_path: Pat
             },
         }), encoding="utf-8")
 
-        result = control.read_active_memory_result(str(selected))
+        original_read_text = control.Path.read_text
+
+        def reject_full_selected_read(path, *args, **kwargs):
+            if path.resolve(strict=False) == selected.resolve(strict=False):
+                raise AssertionError("selected note must be read with a bounded stream")
+            return original_read_text(path, *args, **kwargs)
+
+        control.Path.read_text = reject_full_selected_read
+        try:
+            result = control.read_active_memory_result(str(selected))
+        finally:
+            control.Path.read_text = original_read_text
         rejected = control.read_active_memory_result(str(ignored))
     finally:
         control.api.get_hermes_home = original_home
 
     assert result["path"] == str(selected)
-    assert result["content"] == "# Selected\n\nfull active-memory note"
+    assert result["content"] == "# Selected\n\n" + ("x" * 11_988)
+    assert result["chars"] == 12_000
+    assert result["truncated"] is True
     assert rejected["error"] == "path_not_selected"
 
 
