@@ -543,6 +543,7 @@ def _current_time_entry() -> dict[str, Any]:
     content = "\n".join(
         [
             f"Current time: {now.isoformat(timespec='seconds')} (Asia/Tokyo)",
+            "This is the accurate current time.",
             "Use this as the fresh current time for relative dates like today, tomorrow, yesterday, later, and next time.",
         ]
     )

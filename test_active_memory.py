@@ -48,6 +48,14 @@ def test_normalize_lane_replaces_pre_context_command_with_active_memory_director
     assert "pre_context_timeout_seconds" not in lane
 
 
+def test_current_time_entry_marks_time_as_accurate():
+    entry = api._current_time_entry()
+
+    assert entry["kind"] == "current_time"
+    assert "This is the accurate current time." in entry["content"]
+    assert "Asia/Tokyo" in entry["content"]
+
+
 def test_active_memory_retrieval_selects_relevant_markdown_and_ignores_unrelated(tmp_path: Path):
     notes = tmp_path / "workspace" / "notes"
     notes.mkdir(parents=True)
@@ -560,6 +568,7 @@ if __name__ == "__main__":
     import tempfile
 
     test_normalize_lane_replaces_pre_context_command_with_active_memory_directory()
+    test_current_time_entry_marks_time_as_accurate()
     with tempfile.TemporaryDirectory() as temp:
         test_active_memory_retrieval_selects_relevant_markdown_and_ignores_unrelated(Path(temp))
     with tempfile.TemporaryDirectory() as temp:
