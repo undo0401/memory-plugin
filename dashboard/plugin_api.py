@@ -926,56 +926,98 @@ def resolve_memory_injection_policy(
     is_new_session: bool = False,
     session_id: str | None = None,
 ) -> dict[str, Any]:
-    result = resolve_memory_injection(config, session_key, source)
-    effective_session_key = _safe_text(result.get("session_key") or session_key)
-    matched_lanes = list(result.get("lanes") or [])
+    matched_result = resolve_memory_injection(config, session_key, source)
+    effective_session_key = _safe_text(matched_result.get("session_key") or session_key)
+    matched_lanes = list(matched_result.get("lanes") or [])
     matched_intervals = sorted(
         {
             _normalize_reinject_interval_minutes(lane.get("reinject_interval_minutes"))
             for lane in matched_lanes
         }
     )
-    reinject_interval_minutes = 0 if 0 in matched_intervals else (matched_intervals[0] if matched_intervals else 0)
     state = load_state()
     session_runtime = _session_runtime_entry(state, effective_session_key) if effective_session_key else {}
-    last_injected_at = _safe_text(session_runtime.get("last_injected_at") or "")
-    last_injected_dt = _parse_iso_datetime(last_injected_at)
+    lane_runtime = session_runtime.get("__pre_call_lanes__") if isinstance(session_runtime, dict) else {}
+    if not isinstance(lane_runtime, dict):
+        lane_runtime = {}
     now_dt = datetime.now(timezone.utc).astimezone()
-    elapsed_minutes = None
-    if last_injected_dt is not None:
-        elapsed_minutes = max(0.0, (now_dt - last_injected_dt).total_seconds() / 60.0)
+    lane_decisions: list[dict[str, Any]] = []
+    selected_lanes: list[dict[str, Any]] = []
 
-    should_inject = False
-    decision_reason = "no_match"
-    if result.get("matched"):
-        if is_new_session:
-            should_inject = True
-            decision_reason = "new_session"
-        elif reinject_interval_minutes <= 0:
-            should_inject = True
-            decision_reason = "interval_zero_always"
-        elif not effective_session_key:
-            decision_reason = "missing_session_key"
-        elif not last_injected_at:
-            should_inject = True
-            decision_reason = "initial_session"
-        elif elapsed_minutes is not None and elapsed_minutes >= float(reinject_interval_minutes):
-            should_inject = True
-            decision_reason = "interval_elapsed"
-        else:
-            decision_reason = "interval_not_elapsed"
+    for index, lane in enumerate(matched_lanes):
+        lane_name = _safe_text(lane.get("name") or "") or f"lane-{index}"
+        interval = _normalize_reinject_interval_minutes(lane.get("reinject_interval_minutes"))
+        lane_result = resolve_memory_injection({"lanes": [lane]}, effective_session_key, source)
+        previous = lane_runtime.get(lane_name)
+        previous = previous if isinstance(previous, dict) else {}
+        last_injected_at = _safe_text(previous.get("last_injected_at") or "")
+        last_injected_dt = _parse_iso_datetime(last_injected_at)
+        elapsed_minutes = None
+        if last_injected_dt is not None:
+            elapsed_minutes = max(0.0, (now_dt - last_injected_dt).total_seconds() / 60.0)
+
+        lane_should_inject = False
+        decision_reason = "no_context"
+        if lane_result.get("matched"):
+            if is_new_session:
+                lane_should_inject = True
+                decision_reason = "new_session"
+            elif interval <= 0:
+                lane_should_inject = True
+                decision_reason = "interval_zero_always"
+            elif not effective_session_key:
+                decision_reason = "missing_session_key"
+            elif not last_injected_at:
+                lane_should_inject = True
+                decision_reason = "initial_lane"
+            elif elapsed_minutes is not None and elapsed_minutes >= float(interval):
+                lane_should_inject = True
+                decision_reason = "interval_elapsed"
+            else:
+                decision_reason = "interval_not_elapsed"
+        lane_decisions.append({
+            "lane_name": lane_name,
+            "should_inject": lane_should_inject,
+            "decision_reason": decision_reason,
+            "reinject_interval_minutes": interval,
+            "last_injected_at": last_injected_at or None,
+            "elapsed_minutes": elapsed_minutes,
+        })
+        if lane_should_inject:
+            selected_lanes.append(lane)
+
+    selected_result = (
+        resolve_memory_injection({"lanes": selected_lanes}, effective_session_key, source)
+        if selected_lanes
+        else matched_result
+    )
+    selected_decisions = [item for item in lane_decisions if item["should_inject"]]
+    should_inject = bool(selected_decisions and selected_result.get("matched"))
+    if not matched_lanes:
+        decision_reason = "no_match"
+    elif not selected_decisions:
+        decision_reason = "no_lane_due"
+    elif len(selected_decisions) == 1:
+        decision_reason = str(selected_decisions[0]["decision_reason"])
+    else:
+        decision_reason = "per_lane_due"
+    selected_lane_names = [str(item["lane_name"]) for item in selected_decisions]
+    selected_intervals = [int(item["reinject_interval_minutes"]) for item in selected_decisions]
 
     return {
-        "result": result,
+        "result": selected_result,
+        "matched_result": matched_result,
         "session_key": effective_session_key,
         "session_id": _safe_text(session_id or ""),
         "is_new_session": bool(is_new_session),
         "should_inject": should_inject,
         "decision_reason": decision_reason,
-        "reinject_interval_minutes": reinject_interval_minutes,
+        "reinject_interval_minutes": min(selected_intervals) if selected_intervals else None,
         "matched_reinject_intervals": matched_intervals,
-        "last_injected_at": last_injected_at or None,
-        "elapsed_minutes": elapsed_minutes,
+        "selected_lane_names": selected_lane_names,
+        "lane_decisions": lane_decisions,
+        "last_injected_at": _safe_text(session_runtime.get("last_injected_at") or "") or None,
+        "elapsed_minutes": None,
     }
 
 
@@ -1075,6 +1117,23 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
             session_runtime["session_id"] = policy.get("session_id")
         if injected and result.get("matched"):
             session_runtime["last_injected_at"] = now
+            pre_call_lanes = session_runtime.get("__pre_call_lanes__")
+            if not isinstance(pre_call_lanes, dict):
+                pre_call_lanes = {}
+                session_runtime["__pre_call_lanes__"] = pre_call_lanes
+            for lane_decision in list(policy.get("lane_decisions") or []):
+                if not isinstance(lane_decision, dict) or not lane_decision.get("should_inject"):
+                    continue
+                lane_name = _safe_text(lane_decision.get("lane_name") or "")
+                if not lane_name:
+                    continue
+                lane_state = pre_call_lanes.get(lane_name)
+                if not isinstance(lane_state, dict):
+                    lane_state = {}
+                    pre_call_lanes[lane_name] = lane_state
+                lane_state["last_injected_at"] = now
+                lane_state["last_decision_reason"] = lane_decision.get("decision_reason")
+                lane_state["reinject_interval_minutes"] = int(lane_decision.get("reinject_interval_minutes") or 0)
             if policy.get("decision_reason") == "pre_call_memory":
                 session_runtime["last_injected_mode"] = "pre_call_memory"
             elif policy.get("decision_reason") == "pre_call_current_time":
@@ -1086,6 +1145,8 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
         "session_key": result.get("session_key"),
         "active_profile": result.get("active_profile"),
         "lane_names": list(result.get("lane_names") or []),
+        "selected_lane_names": list(policy.get("selected_lane_names") or []),
+        "lane_decisions": list(policy.get("lane_decisions") or []),
         "lane_prompts": list(result.get("lane_prompts") or []),
         "lane_skills": list(result.get("lane_skills") or []),
         "include_current_time": bool(result.get("include_current_time")),

@@ -179,6 +179,8 @@ def resolve(payload: dict[str, Any] | str | None = None) -> dict[str, Any]:
             "decision_reason": policy.get("decision_reason"),
             "reinject_interval_minutes": int(policy.get("reinject_interval_minutes") or 0),
             "matched_reinject_intervals": list(policy.get("matched_reinject_intervals") or []),
+            "selected_lane_names": list(policy.get("selected_lane_names") or []),
+            "lane_decisions": list(policy.get("lane_decisions") or []),
             "last_injected_at": policy.get("last_injected_at"),
             "elapsed_minutes": policy.get("elapsed_minutes"),
             "is_new_session": bool(policy.get("is_new_session")),

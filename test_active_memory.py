@@ -48,11 +48,17 @@ def test_normalize_lane_replaces_pre_context_command_with_active_memory_director
     assert "pre_context_timeout_seconds" not in lane
 
 
-def test_zero_interval_lane_forces_injection_even_with_a_throttled_lane():
+def test_zero_interval_lane_injects_independently_of_a_throttled_lane():
     original_load_state = api.load_state
+    now = api.now_iso()
     setattr(api, "load_state", lambda: {
         "session_runtime": {
-            "dm": {"last_injected_at": api.now_iso()},
+            "dm": {
+                "__pre_call_lanes__": {
+                    "casual": {"last_injected_at": now},
+                    "all": {"last_injected_at": now},
+                },
+            },
         },
     })
     try:
@@ -64,12 +70,14 @@ def test_zero_interval_lane_forces_injection_even_with_a_throttled_lane():
                         "enabled": True,
                         "target_sessions": ["dm"],
                         "include_current_time": True,
+                        "snapshot_files": ["state/STATUS.md"],
                         "reinject_interval_minutes": 30,
                     },
                     {
                         "name": "all",
                         "enabled": True,
                         "target_sessions": [],
+                        "prompt": "all memory",
                         "reinject_interval_minutes": 0,
                     },
                 ],
@@ -81,9 +89,46 @@ def test_zero_interval_lane_forces_injection_even_with_a_throttled_lane():
         setattr(api, "load_state", original_load_state)
 
     assert policy["matched_reinject_intervals"] == [0, 30]
-    assert policy["reinject_interval_minutes"] == 0
+    assert policy["selected_lane_names"] == ["all"]
+    assert policy["result"]["lane_names"] == ["all"]
+    assert policy["result"]["snapshot_files"] == []
     assert policy["should_inject"] is True
-    assert policy["decision_reason"] == "interval_zero_always"
+    assert [
+        {key: item[key] for key in ("lane_name", "should_inject", "decision_reason", "reinject_interval_minutes")}
+        for item in policy["lane_decisions"]
+    ] == [
+        {"lane_name": "casual", "should_inject": False, "decision_reason": "interval_not_elapsed", "reinject_interval_minutes": 30},
+        {"lane_name": "all", "should_inject": True, "decision_reason": "interval_zero_always", "reinject_interval_minutes": 0},
+    ]
+
+
+def test_update_resolution_state_records_only_lanes_injected_this_call():
+    original_load_state = api.load_state
+    original_save_state = api.save_state
+    state = {"session_runtime": {"dm": {}}}
+    setattr(api, "load_state", lambda: state)
+    setattr(api, "save_state", lambda _state: None)
+    try:
+        api.update_memory_resolution_state(
+            {
+                "session_key": "dm",
+                "should_inject": True,
+                "decision_reason": "interval_zero_always",
+                "lane_decisions": [
+                    {"lane_name": "casual", "should_inject": False, "reinject_interval_minutes": 30},
+                    {"lane_name": "all", "should_inject": True, "decision_reason": "interval_zero_always", "reinject_interval_minutes": 0},
+                ],
+                "result": {"matched": True, "session_key": "dm", "lane_names": ["all"]},
+            },
+            injected=True,
+        )
+    finally:
+        setattr(api, "load_state", original_load_state)
+        setattr(api, "save_state", original_save_state)
+
+    lane_state = state["session_runtime"]["dm"]["__pre_call_lanes__"]
+    assert set(lane_state) == {"all"}
+    assert lane_state["all"]["reinject_interval_minutes"] == 0
 
 
 def test_current_time_entry_marks_time_as_accurate():
@@ -606,7 +651,8 @@ if __name__ == "__main__":
     import tempfile
 
     test_normalize_lane_replaces_pre_context_command_with_active_memory_directory()
-    test_zero_interval_lane_forces_injection_even_with_a_throttled_lane()
+    test_zero_interval_lane_injects_independently_of_a_throttled_lane()
+    test_update_resolution_state_records_only_lanes_injected_this_call()
     test_current_time_entry_marks_time_as_accurate()
     with tempfile.TemporaryDirectory() as temp:
         test_active_memory_retrieval_selects_relevant_markdown_and_ignores_unrelated(Path(temp))
