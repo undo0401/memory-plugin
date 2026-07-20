@@ -929,14 +929,13 @@ def resolve_memory_injection_policy(
     result = resolve_memory_injection(config, session_key, source)
     effective_session_key = _safe_text(result.get("session_key") or session_key)
     matched_lanes = list(result.get("lanes") or [])
-    positive_intervals = sorted(
+    matched_intervals = sorted(
         {
             _normalize_reinject_interval_minutes(lane.get("reinject_interval_minutes"))
             for lane in matched_lanes
-            if _normalize_reinject_interval_minutes(lane.get("reinject_interval_minutes")) > 0
         }
     )
-    reinject_interval_minutes = positive_intervals[0] if positive_intervals else 0
+    reinject_interval_minutes = 0 if 0 in matched_intervals else (matched_intervals[0] if matched_intervals else 0)
     state = load_state()
     session_runtime = _session_runtime_entry(state, effective_session_key) if effective_session_key else {}
     last_injected_at = _safe_text(session_runtime.get("last_injected_at") or "")
@@ -974,7 +973,7 @@ def resolve_memory_injection_policy(
         "should_inject": should_inject,
         "decision_reason": decision_reason,
         "reinject_interval_minutes": reinject_interval_minutes,
-        "matched_reinject_intervals": positive_intervals,
+        "matched_reinject_intervals": matched_intervals,
         "last_injected_at": last_injected_at or None,
         "elapsed_minutes": elapsed_minutes,
     }

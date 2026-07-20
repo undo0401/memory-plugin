@@ -48,6 +48,44 @@ def test_normalize_lane_replaces_pre_context_command_with_active_memory_director
     assert "pre_context_timeout_seconds" not in lane
 
 
+def test_zero_interval_lane_forces_injection_even_with_a_throttled_lane():
+    original_load_state = api.load_state
+    setattr(api, "load_state", lambda: {
+        "session_runtime": {
+            "dm": {"last_injected_at": api.now_iso()},
+        },
+    })
+    try:
+        policy = api.resolve_memory_injection_policy(
+            {
+                "lanes": [
+                    {
+                        "name": "casual",
+                        "enabled": True,
+                        "target_sessions": ["dm"],
+                        "include_current_time": True,
+                        "reinject_interval_minutes": 30,
+                    },
+                    {
+                        "name": "all",
+                        "enabled": True,
+                        "target_sessions": [],
+                        "reinject_interval_minutes": 0,
+                    },
+                ],
+            },
+            "dm",
+            {"platform": "discord", "chat_id": "dm"},
+        )
+    finally:
+        setattr(api, "load_state", original_load_state)
+
+    assert policy["matched_reinject_intervals"] == [0, 30]
+    assert policy["reinject_interval_minutes"] == 0
+    assert policy["should_inject"] is True
+    assert policy["decision_reason"] == "interval_zero_always"
+
+
 def test_current_time_entry_marks_time_as_accurate():
     entry = api._current_time_entry()
 
@@ -568,6 +606,7 @@ if __name__ == "__main__":
     import tempfile
 
     test_normalize_lane_replaces_pre_context_command_with_active_memory_directory()
+    test_zero_interval_lane_forces_injection_even_with_a_throttled_lane()
     test_current_time_entry_marks_time_as_accurate()
     with tempfile.TemporaryDirectory() as temp:
         test_active_memory_retrieval_selects_relevant_markdown_and_ignores_unrelated(Path(temp))
