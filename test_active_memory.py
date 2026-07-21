@@ -131,12 +131,10 @@ def test_update_resolution_state_records_only_lanes_injected_this_call():
     assert lane_state["all"]["reinject_interval_minutes"] == 0
 
 
-def test_current_time_entry_marks_time_as_accurate():
-    entry = api._current_time_entry()
+def test_normalize_lane_discards_retired_current_time_option():
+    lane = api._normalize_lane({"name": "memory", "include_current_time": True})
 
-    assert entry["kind"] == "current_time"
-    assert "This is the accurate current time." in entry["content"]
-    assert "Asia/Tokyo" in entry["content"]
+    assert "include_current_time" not in lane
 
 
 def test_active_memory_retrieval_selects_relevant_markdown_and_ignores_unrelated(tmp_path: Path):
@@ -653,7 +651,7 @@ if __name__ == "__main__":
     test_normalize_lane_replaces_pre_context_command_with_active_memory_directory()
     test_zero_interval_lane_injects_independently_of_a_throttled_lane()
     test_update_resolution_state_records_only_lanes_injected_this_call()
-    test_current_time_entry_marks_time_as_accurate()
+    test_normalize_lane_discards_retired_current_time_option()
     with tempfile.TemporaryDirectory() as temp:
         test_active_memory_retrieval_selects_relevant_markdown_and_ignores_unrelated(Path(temp))
     with tempfile.TemporaryDirectory() as temp:

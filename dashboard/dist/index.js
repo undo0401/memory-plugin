@@ -172,8 +172,7 @@
       name: "memory-" + n,
       enabled: true,
       prompt: "",
-      include_current_time: false,
-      include_current_source: false,
+
       idle_seconds: 0,
       reinject_interval_minutes: 0,
       target_sessions: [],
@@ -241,8 +240,7 @@
             enabled: !!lane.enabled,
             promptText: String(lane.prompt || ""),
             skills: Array.isArray(lane.skills) ? lane.skills.slice() : [],
-            includeCurrentTime: !!lane.include_current_time,
-            includeCurrentSource: !!lane.include_current_source,
+
             idleMinutes: String(minutesFromSeconds(lane.idle_seconds || (Number(lane.reinject_interval_minutes || 0) * 60) || 0)),
             scopeMode: defaultScopeMode(lane),
             targetSessionsText: ((lane.target_sessions || []).filter(function (item) { return item !== "*"; })).join("\n"),
@@ -328,8 +326,7 @@
         enabled: !!form.enabled,
         prompt: String(form.promptText || "").trim(),
         skills: Array.isArray(form.skills) ? form.skills.slice() : [],
-        include_current_time: !!form.includeCurrentTime,
-        include_current_source: !!form.includeCurrentSource,
+
         idle_seconds: secondsFromMinutes(form.idleMinutes),
         reinject_interval_minutes: Math.max(0, Number(form.idleMinutes || 0) || 0),
         target_sessions: useTarget ? scopeValues : [],
@@ -459,7 +456,7 @@
         ),
         h(Card, { className: "lin-panel__hero" },
           h(CardContent, { className: "lin-panel__heroContent" },
-            h("p", { className: "lin-panel__lead" }, "Memory injection の設定を管理する画面です。一覧で全体を見て、個別設定では対象セッション、current time / current source、差し込むファイル、skills を編集できます。"),
+            h("p", { className: "lin-panel__lead" }, "Memory injection の設定を管理する画面です。一覧で全体を見て、個別設定では対象セッション、差し込むファイル、skills を編集できます。"),
             h(TopSummary, { summary: summary }),
             payload.config_file ? h("p", { className: "lin-panel__path" }, "config: " + payload.config_file) : null,
             state.error ? h("p", { className: "lin-panel__error" }, state.error) : null,
@@ -490,8 +487,7 @@
                     scopeSummaryParts(item).map(function (part) { return h("span", { key: "scope-" + part }, part); }),
                     h("span", null, "skills · " + ((item.skills || []).join(", ") || "(none)")),
                     h("span", null, "timing · " + timingSummary(item.idle_seconds || (Number(item.reinject_interval_minutes || 0) * 60) || 0)),
-                    h("span", null, "current time · " + (item.include_current_time ? "inject" : "skip")),
-                    h("span", null, "current source · " + (item.include_current_source ? "inject" : "skip")),
+
                     h("span", null, "files · " + (files.length ? truncate(files.join(", "), 160) : "(none)")),
                     h("span", null, "active memory · " + (item.active_memory_directory || "(none)"))
                   )
@@ -516,8 +512,7 @@
       var summaryTargetText = summaryScopeMode === "target" ? summaryScopeValues.join(", ") : "(all)";
       var summaryExcludeText = summaryScopeMode === "exclude" ? summaryScopeValues.join(", ") : "(none)";
       var summaryTargetProfiles = activeProfile(state.payload);
-      var summaryCurrentTime = form.includeCurrentTime ? "inject" : "skip";
-      var summaryCurrentSource = form.includeCurrentSource ? "inject" : "skip";
+
       var summaryTiming = timingSummary(secondsFromMinutes(form.idleMinutes || 0));
       var summarySkills = Array.isArray(form.skills) && form.skills.length ? form.skills.join(", ") : "(none)";
       var summaryActiveMemoryDirectory = String(form.activeMemoryDirectory || "").trim();
@@ -539,7 +534,7 @@
             )
           ),
           h(CardContent, { className: "lin-panel__heroContent" },
-            h("p", { className: "lin-panel__lead" }, "選択した memory 設定の詳細です。対象範囲、current time / current source、snapshot files、事前ロードする skills をこの memory ごとに編集できます。"),
+            h("p", { className: "lin-panel__lead" }, "選択した memory 設定の詳細です。対象範囲、snapshot files、事前ロードする skills をこの memory ごとに編集できます。"),
             h(TopSummary, { summary: summary }),
             h("p", { className: "lin-panel__path" }, "name: " + (form.name || "")),
             state.error ? h("p", { className: "lin-panel__error" }, state.error) : null,
@@ -560,18 +555,7 @@
                   h("p", { className: "lin-panel__hint" }, "最後にこの memory を差し込んでから、次に再差し込みしていいまでの待ち時間（分）だよ。0 は毎回差し込み。")
                 )
               ),
-              h("div", { className: "lin-panel__field" },
-                h(Label, null, "context metadata"),
-                h("label", { className: "lin-panel__fieldRowCheckbox" },
-                  h(Checkbox, { checked: !!form.includeCurrentTime, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentTime", !!v); } }),
-                  h("span", null, "current time")
-                ),
-                h("label", { className: "lin-panel__fieldRowCheckbox" },
-                  h(Checkbox, { checked: !!form.includeCurrentSource, disabled: !!state.saving, onCheckedChange: function (v) { setFormValue("includeCurrentSource", !!v); } }),
-                  h("span", null, "current source")
-                ),
-                h("p", { className: "lin-panel__hint" }, "この memory が注入される時に、現在時刻や今の会話元を同じ preview / injection の中へ入れるよ。")
-              ),
+
               h("div", { className: "lin-panel__field" },
                 h(Label, null, "Skills (optional)"),
                 h(NameCheckboxPicker, { id: "memory-skills", available: state.availableSkills || [], selected: form.skills || [], onChange: function (skills) { setFormValue("skills", skills); }, emptyLabel: "No skills installed for this profile." }),
@@ -605,8 +589,7 @@
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "matched sessions"), h("dd", null, String(runtimeInfo.matched_session_count || 0))),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "timing"), h("dd", null, summaryTiming)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "skills"), h("dd", null, summarySkills)),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current time"), h("dd", null, summaryCurrentTime)),
-                h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "current source"), h("dd", null, summaryCurrentSource)),
+
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "target"), h("dd", null, summaryTargetKind + " · " + summaryTargetText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "exclude"), h("dd", null, summaryTargetKind + " · " + summaryExcludeText)),
                 h("div", { className: "lin-panel__summaryRow" }, h("dt", null, "dashboard profile"), h("dd", null, summaryTargetProfiles)),

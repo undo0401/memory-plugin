@@ -284,8 +284,7 @@ async def _apply_memory_tick_for_lane(self, api: Any, state: dict[str, Any], ses
     lane_state["last_decision_reason"] = decision_reason
     lane_state["idle_seconds"] = _normalize_float(lane.get("idle_seconds"), 0.0)
     lane_state["reinject_interval_minutes"] = int(api._normalize_reinject_interval_minutes(lane.get("reinject_interval_minutes")))
-    lane_state["include_current_time"] = bool(api._normalize_bool(lane.get("include_current_time"), False))
-    lane_state["include_current_source"] = bool(api._normalize_bool(lane.get("include_current_source"), False))
+
     lane_state["active_profile"] = api._active_profile_name()
     lane_state["target_profiles"] = list(lane.get("target_profiles") or [])
     lane_state["exclude_profiles"] = list(lane.get("exclude_profiles") or [])

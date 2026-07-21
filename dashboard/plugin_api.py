@@ -47,8 +47,7 @@ DEFAULT_LANE = {
     "exclude_sessions": [],
     "exclude_profiles": [],
     "skills": [],
-    "include_current_time": False,
-    "include_current_source": False,
+
     "active_memory_directory": "",
     "snapshot_files": [
         "state/MEMORY_EVENT_CONTEXT.md",
@@ -335,14 +334,7 @@ def _normalize_lane(data: dict[str, Any], index: int = 0) -> dict[str, Any]:
     normalized["name"] = str(source.get("name") or source.get("id") or fallback_name)
     normalized["enabled"] = bool(source.get("enabled", True))
     normalized["prompt"] = str(source.get("prompt") or "").strip()
-    normalized["include_current_time"] = _normalize_bool(
-        source.get("include_current_time"),
-        False,
-    )
-    normalized["include_current_source"] = _normalize_bool(
-        source.get("include_current_source"),
-        False,
-    )
+
     idle_seconds = _normalize_idle_seconds(source)
     normalized["idle_seconds"] = idle_seconds
     if idle_seconds > 0:
@@ -537,54 +529,6 @@ def _read_snapshot_text(raw_path: str) -> dict[str, Any]:
         result["error"] = str(exc)
     return result
 
-
-def _current_time_entry() -> dict[str, Any]:
-    now = datetime.now(JST)
-    content = "\n".join(
-        [
-            f"Current time: {now.isoformat(timespec='seconds')} (Asia/Tokyo)",
-            "This is the accurate current time.",
-            "Use this as the fresh current time for relative dates like today, tomorrow, yesterday, later, and next time.",
-        ]
-    )
-    return {
-        "path": "__current_time__",
-        "content": content,
-        "kind": "current_time",
-        "label": "current time",
-        "date": now.date().isoformat(),
-    }
-
-
-def _display_channel_name(source: Any) -> str:
-    chat_name = _safe_text(_source_get(source, "chat_name", ""))
-    if chat_name:
-        parts = [_safe_text(part) for part in chat_name.split(" / ") if _safe_text(part)]
-        if parts:
-            return parts[-1]
-        return chat_name
-    thread_id = _safe_text(_source_get(source, "thread_id", ""))
-    chat_id = _safe_text(_source_get(source, "chat_id", ""))
-    if thread_id and chat_id:
-        return f"{chat_id}:{thread_id}"
-    return thread_id or chat_id or "(runtime source)"
-
-
-def _current_source_entry(source: Any) -> dict[str, Any]:
-    chat_name = _safe_text(_source_get(source, "chat_name", ""))
-    if chat_name:
-        parts = [_safe_text(part) for part in chat_name.split(" / ") if _safe_text(part)]
-        source_label = " / ".join(parts[1:]) if len(parts) >= 2 else chat_name
-    else:
-        source_label = _display_channel_name(source)
-    content = f"chat_name: {source_label}"
-    return {
-        "path": "__current_source__",
-        "content": content,
-        "kind": "current_source",
-        "label": source_label,
-        "date": None,
-    }
 
 
 _HIRAGANA_STOPWORDS = frozenset({
@@ -861,11 +805,7 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
         seen_paths.add(path_text)
     file_results = [_read_snapshot_text(path_text) for path_text in ordered_paths]
     loaded_files = [item for item in file_results if item.get("content")]
-    include_current_time = _normalize_bool(normalized_lane.get("include_current_time"), False)
-    current_time_files = [_current_time_entry()] if include_current_time else []
-    include_current_source = _normalize_bool(normalized_lane.get("include_current_source"), False)
-    current_source_files = [_current_source_entry({})] if include_current_source else []
-    loaded_entries = current_time_files + current_source_files + loaded_files
+    loaded_entries = loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text([normalized_lane], loaded_entries, include_skills=False)
     active_memory_directory = _safe_text(normalized_lane.get("active_memory_directory"))
@@ -874,8 +814,6 @@ def _load_lane_preview(lane: dict[str, Any]) -> dict[str, Any]:
         "text": text,
         "excerpt": _truncate_preview_text(text),
         "has_preview": bool(text),
-        "include_current_time": include_current_time,
-        "include_current_source": include_current_source,
         "snapshot_files": ordered_paths,
         "active_memory_directory": active_memory_directory,
         "loaded_files": [
@@ -1036,15 +974,7 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
             seen_paths.add(path_text)
     file_results = [_read_snapshot_text(path_text) for path_text in ordered_paths]
     loaded_files = [item for item in file_results if item.get("content")]
-    include_current_time = any(
-        _normalize_bool(lane.get("include_current_time"), False) for lane in matched_lanes
-    )
-    current_time_files = [_current_time_entry()] if include_current_time else []
-    include_current_source = any(
-        _normalize_bool(lane.get("include_current_source"), False) for lane in matched_lanes
-    )
-    current_source_files = [_current_source_entry(source)] if include_current_source else []
-    loaded_entries = current_time_files + current_source_files + loaded_files
+    loaded_entries = loaded_files
     missing_files = [item for item in file_results if item.get("error")]
     text = _render_injection_text(matched_lanes, loaded_entries, session_id=None)
     active_memory_directories = [
@@ -1079,8 +1009,6 @@ def resolve_memory_injection(config: dict[str, Any], session_key: str, source: A
         "selector_aliases": {
             "session": session_aliases,
         },
-        "include_current_time": include_current_time,
-        "include_current_source": include_current_source,
         "snapshot_files": ordered_paths,
         "active_memory_directories": active_memory_directories,
         "loaded_files": [
@@ -1136,8 +1064,6 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
                 lane_state["reinject_interval_minutes"] = int(lane_decision.get("reinject_interval_minutes") or 0)
             if policy.get("decision_reason") == "pre_call_memory":
                 session_runtime["last_injected_mode"] = "pre_call_memory"
-            elif policy.get("decision_reason") == "pre_call_current_time":
-                session_runtime["last_injected_mode"] = "pre_call_current_time"
             else:
                 session_runtime["last_injected_mode"] = "session_open" if policy.get("is_new_session") else "interval"
     state["last_resolution"] = {
@@ -1149,8 +1075,6 @@ def update_memory_resolution_state(policy: dict[str, Any], *, injected: bool) ->
         "lane_decisions": list(policy.get("lane_decisions") or []),
         "lane_prompts": list(result.get("lane_prompts") or []),
         "lane_skills": list(result.get("lane_skills") or []),
-        "include_current_time": bool(result.get("include_current_time")),
-        "include_current_source": bool(result.get("include_current_source")),
         "snapshot_files": list(result.get("snapshot_files") or []),
         "active_memory_directories": list(result.get("active_memory_directories") or []),
         "active_memory_results": dict(result.get("active_memory_results") or {}),
