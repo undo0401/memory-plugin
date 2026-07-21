@@ -25,3 +25,8 @@ venv/
 *.log
 *.tmp
 .DS_Store
+
+# Standard runtime-local policy.
+!defaults/
+!defaults/**
+/data/
